@@ -68,9 +68,9 @@ export abstract class AgentHookServerStatusUpdate extends AgentHookServerStatusA
       })
       return undefined
     }
-    if (payload.agentPresence?.process) {
-      // Only a hook-identified live process supersedes the previous agent's exit in this pane.
-      this.agentExitedAtByPaneKey.delete(payload.paneKey)
+    if (payload.source !== undefined || payload.agentPresence?.process) {
+      // A hook (not a late terminal repaint) means an agent claimed the pane after the last exit.
+      this.forgetAgentExit(payload.paneKey)
     }
     if (payload.hookEventName === 'UserPromptSubmit') {
       // Why: the prompt boundary is authoritative even when text is unchanged; its next OSC working row must not inherit the prior cron/background turn stamp.

@@ -135,7 +135,17 @@ export abstract class AgentHookServerCleanup extends AgentHookServerAuthorityFen
     for (const paneKey of paneKeys) {
       const resolvedPaneKey = this.resolvePaneKeyAlias(paneKey)
       if (options?.endedPresence) {
-        this.agentExitedAtByPaneKey.set(resolvedPaneKey, Date.now())
+        // Why both: cleanup below drops the alias, and a reader may still hold the original key.
+        const paneKeys = new Set([resolvedPaneKey, paneKey])
+        for (const [aliasKey, alias] of this.legacyPaneKeyAliases) {
+          if (alias.stablePaneKey === resolvedPaneKey) {
+            paneKeys.add(aliasKey)
+          }
+        }
+        const exit = { at: Date.now(), paneKeys }
+        for (const key of exit.paneKeys) {
+          this.agentExitedAtByPaneKey.set(key, exit)
+        }
       }
       if (!this.hasLiveClaimsForPaneKey(resolvedPaneKey)) {
         continue

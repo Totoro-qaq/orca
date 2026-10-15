@@ -401,6 +401,26 @@ describe('retained agent exit', () => {
     expect(await server.checkAgentPresenceSince(PANE, attachedAt)).toBe('exited')
   })
 
+  it('keeps the exit readable through both keys when the pane moved before it ended', async () => {
+    const server = await createServer()
+    const attachedAt = Date.now() - 1
+    const moved = makePaneKey('tab-moved', LEAF_1)
+    await hook(server, 'SessionStart')
+    server.transferPaneAuthority(PANE, moved)
+    await hook(server, 'SessionEnd', 'session-a', 'prompt_input_exit')
+    expect(await server.checkAgentPresenceSince(moved, attachedAt)).toBe('exited')
+    expect(await server.checkAgentPresenceSince(PANE, attachedAt)).toBe('exited')
+  })
+
+  it('drops the exit once an agent without a process identity reports from the pane', async () => {
+    const server = await createServer()
+    const attachedAt = Date.now() - 1
+    await hook(server, 'SessionStart')
+    await hook(server, 'SessionEnd', 'session-a', 'prompt_input_exit')
+    await hook(server, 'UserPromptSubmit', 'replacement', undefined, null)
+    expect(await server.checkAgentPresenceSince(PANE, attachedAt)).toBeNull()
+  })
+
   it('drops the exit once a new agent reports from the pane', async () => {
     const server = await createServer()
     const attachedAt = Date.now() - 1

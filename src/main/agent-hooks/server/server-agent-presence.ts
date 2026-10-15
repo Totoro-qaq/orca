@@ -38,8 +38,10 @@ export abstract class AgentHookServerAgentPresence extends AgentHookServerLifecy
     if (verdict !== null) {
       return verdict
     }
-    const exitedAt = this.agentExitedAtByPaneKey.get(this.resolvePaneKeyAlias(paneKey))
-    return exitedAt !== undefined && exitedAt >= exitedSince ? 'exited' : null
+    const exit =
+      this.agentExitedAtByPaneKey.get(this.resolvePaneKeyAlias(paneKey)) ??
+      this.agentExitedAtByPaneKey.get(paneKey)
+    return exit !== undefined && exit.at >= exitedSince ? 'exited' : null
   }
 
   checkAgentPresence(paneKey: string): Promise<AgentProcessVerdict | null> {
