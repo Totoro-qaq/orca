@@ -344,3 +344,42 @@ describe('host-owned hook presence', () => {
     expect(state(server)).toBe('working')
   })
 })
+
+// #24353: a remote worker's liveness reads the exit after the hook store has reconciled the row.
+describe('retained agent exit', () => {
+  it('keeps a SessionEnd exit readable after the row is reconciled', async () => {
+    const server = await createServer()
+    const attachedAt = Date.now() - 1
+    await hook(server, 'SessionStart')
+    await hook(server, 'SessionEnd', 'session-a', 'prompt_input_exit')
+    expect(await server.checkAgentPresence(PANE)).toBeNull()
+    expect(await server.checkAgentPresenceSince(PANE, attachedAt)).toBe('exited')
+  })
+
+  it('keeps a probed exit readable on every later read', async () => {
+    const server = await createServer()
+    const attachedAt = Date.now() - 1
+    await hook(server, 'SessionStart')
+    probe.mockResolvedValue('exited')
+    expect(await server.checkAgentPresence(PANE)).toBe('exited')
+    expect(await server.checkAgentPresenceSince(PANE, attachedAt)).toBe('exited')
+    expect(await server.checkAgentPresenceSince(PANE, attachedAt)).toBe('exited')
+  })
+
+  it('ignores an exit from before the reader attached', async () => {
+    const server = await createServer()
+    await hook(server, 'SessionStart')
+    await hook(server, 'SessionEnd', 'session-a', 'prompt_input_exit')
+    expect(await server.checkAgentPresenceSince(PANE, Date.now() + 60_000)).toBeNull()
+  })
+
+  it('drops the exit once a new agent reports from the pane', async () => {
+    const server = await createServer()
+    const attachedAt = Date.now() - 1
+    await hook(server, 'SessionStart')
+    await hook(server, 'SessionEnd', 'session-a', 'prompt_input_exit')
+    await hook(server, 'SessionStart', 'relaunch', undefined, 4002)
+    probe.mockResolvedValue('live')
+    expect(await server.checkAgentPresenceSince(PANE, attachedAt)).toBe('live')
+  })
+})

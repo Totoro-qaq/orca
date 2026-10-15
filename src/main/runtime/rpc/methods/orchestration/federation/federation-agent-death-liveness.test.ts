@@ -4,6 +4,7 @@ import { OrcaRuntimeService } from '../../../../orca-runtime'
 import { OrchestrationDb } from '../../../../orchestration/db'
 import { ORCHESTRATION_METHODS } from '../../orchestration'
 import { eraseRpcMethods } from '../../../core'
+import { orchestrationTimestampToMs } from '../worker/worker-output'
 
 // #24353: the execution host must report `exited` once it can prove the worker's agent is gone —
 // killed inside a PTY that survives it, or taken down with the PTY by a reboot.
@@ -95,28 +96,15 @@ describe('federation host agent-death liveness', () => {
       : undefined
   }
 
-  it('reports exited when the agent in a still-live PTY is proven dead, and keeps it', async () => {
-    const presence = vi
-      .spyOn(runtime, 'checkTerminalAgentPresence')
-      .mockResolvedValueOnce('exited')
-      .mockResolvedValueOnce(null)
-    await expect(snapshotObservation()).resolves.toEqual({ status: 'exited', exactWorker: true })
-    // The hook store drops the ended owner after reconciling it; the proof must not flip back.
+  it('reports exited when the agent in a still-live PTY is proven dead', async () => {
+    const presence = vi.spyOn(runtime, 'checkTerminalAgentPresence').mockResolvedValue('exited')
     await expect(snapshotObservation()).resolves.toEqual({ status: 'exited', exactWorker: true })
     await expect(call('orchestration.federationShow')).resolves.toMatchObject({
       observation: { status: 'exited', exactWorker: true }
     })
-    expect(presence).toHaveBeenCalledWith(HANDLE)
-  })
-
-  it('returns to live when a new agent process is proven running in the pane', async () => {
-    vi.spyOn(runtime, 'checkTerminalAgentPresence')
-      .mockResolvedValueOnce('exited')
-      .mockResolvedValueOnce('live')
-      .mockResolvedValueOnce(null)
-    await expect(snapshotObservation()).resolves.toMatchObject({ status: 'exited' })
-    await expect(snapshotObservation()).resolves.toMatchObject({ status: 'live' })
-    await expect(snapshotObservation()).resolves.toMatchObject({ status: 'live' })
+    // Fenced to exits proven since the attachment, so an earlier agent's exit cannot count.
+    const attachedAt = db.getRemoteDispatchAttachment(DISPATCH_ID)!.created_at
+    expect(presence).toHaveBeenCalledWith(HANDLE, orchestrationTimestampToMs(attachedAt))
   })
 
   it('keeps the PTY verdict when no hook identified the agent or it cannot be checked', async () => {

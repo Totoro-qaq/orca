@@ -3,6 +3,7 @@ import type { WorkerTerminalReleaseRuntime } from '../../../../orchestration/wor
 import { OrchestrationError } from '../../../../orchestration/orchestration-error'
 import { parseWorkerTerminalHostScope } from '../../../../orchestration/worker-terminal-process-liveness'
 import type { RemoteDispatchAttachmentRow } from '../../../../orchestration/types'
+import { orchestrationTimestampToMs } from '../worker/worker-output'
 
 export function requireHomeAttachment(
   runtime: WorkerTerminalReleaseRuntime,
@@ -87,9 +88,6 @@ export async function inspectRemoteAttachment(
   return { terminal, exact, status: 'live', agentWait }
 }
 
-// Why: the hook store forgets an agent once it reconciles its exit, so keep the proof per process.
-const provenAgentExits = new WeakMap<object, Map<string, string>>()
-
 /** The fleet and show verdict: the terminal's, upgraded to `exited` only on this host's proof. */
 export async function observeRemoteAttachmentLiveness(
   runtime: WorkerTerminalReleaseRuntime,
@@ -116,20 +114,12 @@ export async function observeRemoteAttachmentLiveness(
     return observation
   }
   // Why: the PTY outlives a killed agent (the shell takes the prompt back), so ask the hook store.
+  // An exit it proved before this Dispatch attached belongs to an earlier agent in the pane.
   const agent = await (
-    runtime.checkTerminalAgentPresence?.(attachment.terminal_handle) ?? Promise.resolve(null)
+    runtime.checkTerminalAgentPresence?.(
+      attachment.terminal_handle,
+      orchestrationTimestampToMs(attachment.created_at)
+    ) ?? Promise.resolve(null)
   ).catch(() => 'unverifiable' as const)
-  let proven = provenAgentExits.get(runtime)
-  if (agent === 'exited') {
-    if (!proven) {
-      proven = new Map()
-      provenAgentExits.set(runtime, proven)
-    }
-    proven.set(dispatchId, incarnation)
-  } else if (agent === 'live') {
-    proven?.delete(dispatchId)
-  }
-  return agent === 'exited' || (agent === null && proven?.get(dispatchId) === incarnation)
-    ? { ...observation, status: 'exited', agentWait: null }
-    : observation
+  return agent === 'exited' ? { ...observation, status: 'exited', agentWait: null } : observation
 }

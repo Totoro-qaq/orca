@@ -29,6 +29,19 @@ export abstract class AgentHookServerAgentPresence extends AgentHookServerLifecy
     return presence?.process !== undefined && !presence.ended
   }
 
+  /** As checkAgentPresence, but keeps an exit this host proved at or after `exitedSince`. */
+  async checkAgentPresenceSince(
+    paneKey: string,
+    exitedSince: number
+  ): Promise<AgentProcessVerdict | null> {
+    const verdict = await this.checkAgentPresence(paneKey)
+    if (verdict !== null) {
+      return verdict
+    }
+    const exitedAt = this.agentExitedAtByPaneKey.get(this.resolvePaneKeyAlias(paneKey))
+    return exitedAt !== undefined && exitedAt >= exitedSince ? 'exited' : null
+  }
+
   checkAgentPresence(paneKey: string): Promise<AgentProcessVerdict | null> {
     const resolved = this.resolvePaneKeyAlias(paneKey)
     const row = this.state.lastStatusByPaneKey.get(resolved)

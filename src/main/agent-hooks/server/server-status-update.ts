@@ -68,6 +68,10 @@ export abstract class AgentHookServerStatusUpdate extends AgentHookServerStatusA
       })
       return undefined
     }
+    if (payload.agentPresence) {
+      // A live owner's hook supersedes the previous agent's exit in this pane.
+      this.agentExitedAtByPaneKey.delete(payload.paneKey)
+    }
     if (payload.hookEventName === 'UserPromptSubmit') {
       // Why: the prompt boundary is authoritative even when text is unchanged; its next OSC working row must not inherit the prior cron/background turn stamp.
       this.activeHookTurnCompletedAtByPaneKey.delete(payload.paneKey)

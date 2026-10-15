@@ -134,6 +134,9 @@ export abstract class AgentHookServerCleanup extends AgentHookServerAuthorityFen
     let cleared = 0
     for (const paneKey of paneKeys) {
       const resolvedPaneKey = this.resolvePaneKeyAlias(paneKey)
+      if (options?.endedPresence) {
+        this.agentExitedAtByPaneKey.set(resolvedPaneKey, Date.now())
+      }
       if (!this.hasLiveClaimsForPaneKey(resolvedPaneKey)) {
         continue
       }
