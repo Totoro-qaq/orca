@@ -255,6 +255,48 @@ describe('remote terminal frame-drop resync', () => {
     expect(data).toEqual(['aaa', 'ddd'])
   })
 
+  // Why: an old host drops output while a hidden pane's stream is paused; the reveal's
+  // own requested image already covers that gap, so a resync would clear and repaint
+  // the TUI one round trip later (#22087).
+  it('takes one requested image on reveal and no untagged resync after paused output', async () => {
+    const { data, snapshots, stream } = await subscribeClient()
+    server.output('aaa')
+    server.dropNextOutput = true
+    server.output('dropped while paused')
+
+    const revealImage = await stream.serializeBufferOutcome({
+      scrollbackRows: 100,
+      repaintsPane: true
+    })
+    expect(revealImage.snapshot?.data).toBe('RECOVERED')
+
+    server.output('live after reveal')
+    await Promise.resolve()
+    await Promise.resolve()
+
+    expect(server.snapshotRequests).toEqual([expect.any(Number)])
+    expect(snapshots).toEqual(['INITIAL'])
+    expect(data).toEqual(['aaa', 'live after reveal'])
+  })
+
+  // Why: stall probes and previews read the host without repainting the pane, so a gap
+  // they span is still real and must resync.
+  it('still resyncs a gap that a non-repainting request spanned', async () => {
+    const { data, snapshots, stream } = await subscribeClient()
+    server.output('aaa')
+    server.dropNextOutput = true
+    server.output('dropped')
+
+    await stream.serializeBufferOutcome({ scrollbackRows: 100 })
+    server.output('ccc')
+    await Promise.resolve()
+    await Promise.resolve()
+
+    expect(server.snapshotRequests).toEqual([expect.any(Number), undefined])
+    expect(snapshots).toEqual(['INITIAL', '\x1b[?2026l\x1b[2J\x1b[3J\x1b[HRECOVERED'])
+    expect(data).toEqual(['aaa'])
+  })
+
   it('retries a truncated recovery on a backoff without accepting output across the gap', async () => {
     vi.useFakeTimers()
     try {
