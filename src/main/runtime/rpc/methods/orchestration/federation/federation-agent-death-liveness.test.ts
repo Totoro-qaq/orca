@@ -124,6 +124,24 @@ describe('federation host agent-death liveness', () => {
     expect(inspect).toHaveBeenCalledWith(INCARNATION, JSON.stringify({ kind: 'local' }))
   })
 
+  it('never certifies a legacy runtime-scoped incarnation as exited', async () => {
+    const legacy = `${runtime.getRuntimeId()}:pty-legacy:1`
+    db.db
+      .prepare(
+        'UPDATE remote_dispatch_attachments SET process_incarnation = ? WHERE dispatch_id = ?'
+      )
+      .run(legacy, DISPATCH_ID)
+    vi.mocked(runtime.showTerminal).mockRejectedValue(new Error('terminal_handle_stale'))
+    const inspect = vi
+      .spyOn(runtime, 'inspectTerminalProcessIncarnationLiveness')
+      .mockResolvedValue('exited')
+    await expect(snapshotObservation()).resolves.toEqual({
+      status: 'unverifiable',
+      exactWorker: false
+    })
+    expect(inspect).not.toHaveBeenCalled()
+  })
+
   it('stays unverifiable after a reboot when the process table cannot be read', async () => {
     vi.mocked(runtime.showTerminal).mockRejectedValue(new Error('terminal_handle_stale'))
     vi.spyOn(runtime, 'inspectTerminalProcessIncarnationLiveness').mockResolvedValue('unverifiable')

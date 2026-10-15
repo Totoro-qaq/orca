@@ -100,7 +100,12 @@ export async function observeRemoteAttachmentLiveness(
   if (!attachment?.terminal_handle || !incarnation) {
     return observation
   }
-  if (observation.status === 'missing' || observation.status === 'identity_changed') {
+  if (
+    (observation.status === 'missing' || observation.status === 'identity_changed') &&
+    // Why: a legacy `${runtimeId}:${ptyId}:${generation}` fence never matches the process table,
+    // so its absence there proves nothing.
+    !incarnation.startsWith(`${attachment.runtime_epoch}:`)
+  ) {
     // Why: a host reboot takes the PTY and its handle with it; the process table proves it gone.
     const liveness = await runtime
       .inspectTerminalProcessIncarnationLiveness(
