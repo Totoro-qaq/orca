@@ -86,3 +86,50 @@ export async function inspectRemoteAttachment(
   }
   return { terminal, exact, status: 'live', agentWait }
 }
+
+// Why: the hook store forgets an agent once it reconciles its exit, so keep the proof per process.
+const provenAgentExits = new WeakMap<object, Map<string, string>>()
+
+/** The fleet and show verdict: the terminal's, upgraded to `exited` only on this host's proof. */
+export async function observeRemoteAttachmentLiveness(
+  runtime: WorkerTerminalReleaseRuntime,
+  dispatchId: string
+): Promise<Awaited<ReturnType<typeof inspectRemoteAttachment>>> {
+  const observation = await inspectRemoteAttachment(runtime, dispatchId)
+  const db = runtime.getOrchestrationDb()
+  const attachment = db.getRemoteDispatchAttachment(dispatchId)
+  const incarnation = attachment?.process_incarnation
+  if (!attachment?.terminal_handle || !incarnation) {
+    return observation
+  }
+  if (observation.status === 'missing' || observation.status === 'identity_changed') {
+    // Why: a host reboot takes the PTY and its handle with it; the process table proves it gone.
+    const liveness = await runtime
+      .inspectTerminalProcessIncarnationLiveness(
+        incarnation,
+        db.getWorkerTerminalResourceByOwner(dispatchId)?.host_scope ?? null
+      )
+      .catch(() => 'unverifiable' as const)
+    return liveness === 'exited' ? { terminal: null, exact: true, status: 'exited' } : observation
+  }
+  if (observation.status !== 'live') {
+    return observation
+  }
+  // Why: the PTY outlives a killed agent (the shell takes the prompt back), so ask the hook store.
+  const agent = await (
+    runtime.checkTerminalAgentPresence?.(attachment.terminal_handle) ?? Promise.resolve(null)
+  ).catch(() => 'unverifiable' as const)
+  let proven = provenAgentExits.get(runtime)
+  if (agent === 'exited') {
+    if (!proven) {
+      proven = new Map()
+      provenAgentExits.set(runtime, proven)
+    }
+    proven.set(dispatchId, incarnation)
+  } else if (agent === 'live') {
+    proven?.delete(dispatchId)
+  }
+  return agent === 'exited' || (agent === null && proven?.get(dispatchId) === incarnation)
+    ? { ...observation, status: 'exited', agentWait: null }
+    : observation
+}

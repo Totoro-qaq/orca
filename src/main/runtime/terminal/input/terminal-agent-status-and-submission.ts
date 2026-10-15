@@ -72,6 +72,12 @@ export abstract class OrcaRuntimeWithSerializeAgentPromptSubmission extends Orca
     return this.ptyForegroundAgent.read(ptyId, afterTitleObservation)
   }
 
+  /** The hook store's verdict on the agent process inside this terminal; null when no hook identified one. */
+  checkTerminalAgentPresence(handle: string): Promise<'live' | 'unverifiable' | 'exited' | null> {
+    const ptyId = (this.getLivePtyForHandle(handle)?.record ?? this.handles.get(handle))?.ptyId
+    return ptyId ? this.recheckHookAgentPresenceForPty(ptyId) : Promise.resolve(null)
+  }
+
   protected async recheckHookAgentPresenceForPty(
     ptyId: string
   ): Promise<'live' | 'unverifiable' | 'exited' | null> {

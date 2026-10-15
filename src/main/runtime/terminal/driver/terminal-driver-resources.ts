@@ -79,6 +79,9 @@ export abstract class OrcaRuntimeWithTerminalDrivers extends OrcaRuntimeWithFitO
     serializedHostScope: string | null
   ): string | null
   abstract getTerminalLivenessVerdict(handle: string): PtyLivenessVerdict | null
+  abstract checkTerminalAgentPresence(
+    handle: string
+  ): Promise<'live' | 'unverifiable' | 'exited' | null>
   abstract ensureStructuredAgentSessionHost(): Promise<void>
   abstract inspectTerminalProcessIncarnationLiveness(
     processIncarnation: string,
