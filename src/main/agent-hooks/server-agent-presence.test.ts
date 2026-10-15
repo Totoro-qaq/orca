@@ -3,7 +3,8 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { AgentHookServer } from './server'
-import { buildBody, PANE, postHookEvent } from './server.test-fixtures'
+import { makePaneKey } from '../../shared/stable-pane-id'
+import { buildBody, LEAF_1, PANE, postHookEvent } from './server.test-fixtures'
 
 vi.mock('../telemetry/client', () => ({ track: vi.fn() }))
 vi.mock('../telemetry/cohort-classifier', () => ({ getCohortAtEmit: () => ({}) }))
@@ -371,6 +372,33 @@ describe('retained agent exit', () => {
     await hook(server, 'SessionStart')
     await hook(server, 'SessionEnd', 'session-a', 'prompt_input_exit')
     expect(await server.checkAgentPresenceSince(PANE, Date.now() + 60_000)).toBeNull()
+  })
+
+  it('keeps the exit through a late terminal status with no process identity', async () => {
+    const server = await createServer()
+    const attachedAt = Date.now() - 1
+    await hook(server, 'SessionStart')
+    await hook(server, 'UserPromptSubmit')
+    await hook(server, 'SessionEnd', 'session-a', 'prompt_input_exit')
+    server.ingestTerminalStatus({
+      paneKey: PANE,
+      tabId: 'tab-1',
+      worktreeId: 'wt-1',
+      connectionId: null,
+      payload: { state: 'done', prompt: 'session-a task', agentType: 'claude' }
+    })
+    expect(await server.checkAgentPresenceSince(PANE, attachedAt)).toBe('exited')
+  })
+
+  it('carries the exit with the pane when its authority moves', async () => {
+    const server = await createServer()
+    const attachedAt = Date.now() - 1
+    const moved = makePaneKey('tab-moved', LEAF_1)
+    await hook(server, 'SessionStart')
+    await hook(server, 'SessionEnd', 'session-a', 'prompt_input_exit')
+    server.transferPaneAuthority(PANE, moved)
+    expect(await server.checkAgentPresenceSince(moved, attachedAt)).toBe('exited')
+    expect(await server.checkAgentPresenceSince(PANE, attachedAt)).toBe('exited')
   })
 
   it('drops the exit once a new agent reports from the pane', async () => {

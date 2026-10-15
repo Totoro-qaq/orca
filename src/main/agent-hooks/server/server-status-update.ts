@@ -68,8 +68,8 @@ export abstract class AgentHookServerStatusUpdate extends AgentHookServerStatusA
       })
       return undefined
     }
-    if (payload.agentPresence) {
-      // A live owner's hook supersedes the previous agent's exit in this pane.
+    if (payload.agentPresence?.process) {
+      // Only a hook-identified live process supersedes the previous agent's exit in this pane.
       this.agentExitedAtByPaneKey.delete(payload.paneKey)
     }
     if (payload.hookEventName === 'UserPromptSubmit') {
