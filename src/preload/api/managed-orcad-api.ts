@@ -9,6 +9,7 @@ import type {
   OrcadManagedForgetResult,
   OrcadManagedPendingMigrationRow,
   OrcadManagedRecoveryResult,
+  OrcadManagedRestartResult,
   OrcadManagedRollbackResult,
   OrcadManagedRuntimeStatus,
   OrcadManagedStopResult
@@ -33,6 +34,8 @@ export type ManagedOrcadPreloadApi = {
     /** Restore the snapshot over state a rejected build changed; see ORCAD_RECOVERY_CHANGED_STATE_CODE. */
     acceptChangedState?: boolean
   }) => Promise<OrcadManagedRecoveryResult>
+  /** Restarts from this client's SSH session; refused while terminals run. */
+  restart: (args: { selector: string }) => Promise<OrcadManagedRestartResult>
   stop: (args: { selector: string }) => Promise<OrcadManagedStopResult>
   cancelStop: (args: { selector: string }) => Promise<OrcadManagedCancelStopResult>
   forget: (args: { selector: string }) => Promise<OrcadManagedForgetResult>
@@ -56,6 +59,7 @@ export const managedOrcadApi: ManagedOrcadPreloadApi = {
   update: (args) => ipcRenderer.invoke('runtimeEnvironments:updateOrcad', args),
   rollback: (args) => ipcRenderer.invoke('runtimeEnvironments:rollbackOrcad', args),
   recover: (args) => ipcRenderer.invoke('runtimeEnvironments:recoverOrcad', args),
+  restart: (args) => ipcRenderer.invoke('runtimeEnvironments:restartOrcad', args),
   stop: (args) => ipcRenderer.invoke('runtimeEnvironments:stopOrcad', args),
   cancelStop: (args) => ipcRenderer.invoke('runtimeEnvironments:cancelOrcadStop', args),
   forget: (args) => ipcRenderer.invoke('runtimeEnvironments:forgetOrcad', args),

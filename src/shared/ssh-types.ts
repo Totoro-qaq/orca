@@ -317,6 +317,11 @@ export type SshManagedServerStatus =
       serving?: SshManagedServerServingNote
       /** Set on the connect that moved this host's projects, when some were linked instead. */
       linked?: SshManagedServerLinkedProject[]
+      /**
+       * macOS 15+: the SSH session that started this server proved exited, so its terminals may
+       * have lost Local Network access (#25934). Absent when unknown, e.g. an older launch.
+       */
+      launchSessionEnded?: true
     }
   | { kind: 'setting-up'; phase: (typeof SSH_MANAGED_SERVER_PHASES)[number] }
   /** `detail` names the blocker for a refusal, or why orcad can't run on the host. */

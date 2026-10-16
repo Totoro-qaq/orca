@@ -8,6 +8,7 @@ import type {
 } from '../../../shared/ssh-types'
 import { translate } from '@/i18n/i18n'
 import { useAppStore } from '@/store'
+import { launchSessionEndedLine } from './ssh-host-launch-session-copy'
 
 export type SshHostServerStatusLine = {
   text: string
@@ -33,6 +34,9 @@ export function sshHostServerStatusLine(
       ),
       detail: status.serving.detail
     }
+  }
+  if (status?.kind === 'managed' && status.launchSessionEnded) {
+    return launchSessionEndedLine()
   }
   if (status?.kind === 'managed' && status.update) {
     return managedUpdateLine(status.update)

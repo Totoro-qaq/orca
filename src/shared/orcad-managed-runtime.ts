@@ -70,6 +70,15 @@ export type OrcadManagedStopResult =
   | OrcadManagedRefusal
 
 /**
+ * Restarting the server from the current SSH session. Refused while any terminal runs or can't be
+ * counted (`liveSessions: null`): the terminal daemon outlives orcad and keeps what it inherited.
+ */
+export type OrcadManagedRestartResult =
+  | { outcome: 'restarted'; environmentId: string }
+  | { outcome: 'terminals-running'; liveSessions: number | null }
+  | { outcome: 'not-restarted'; reason: string }
+
+/**
  * Unlinks the server from this desktop without reaching its host, for a host that is gone or
  * unreachable. Never a claim of exit: the server may still run there, so the verdict stays
  * `unverifiable`.

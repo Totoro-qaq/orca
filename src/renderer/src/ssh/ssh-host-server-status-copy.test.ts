@@ -50,6 +50,17 @@ describe('SSH host server status line', () => {
     })
   })
 
+  it('warns when the SSH session that started a macOS host’s server ended', () => {
+    expect(
+      sshHostServerStatusLine(plain, {
+        managedServer: { kind: 'managed', environmentId: 'e', launchSessionEnded: true }
+      })
+    ).toEqual({
+      tone: 'warning',
+      text: 'Terminals on this Mac may have lost local network access because the SSH session that started the managed server ended. Restart the managed server to restore it.'
+    })
+  })
+
   it('shows a managed server being updated, and why it kept its version', () => {
     expect(
       sshHostServerStatusLine(plain, { managedServer: { kind: 'setting-up', phase: 'updating' } })

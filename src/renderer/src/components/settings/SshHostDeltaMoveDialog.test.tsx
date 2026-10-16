@@ -55,6 +55,7 @@ function api(next: OrcadDeltaMovePreview, result: OrcadDeltaMoveResult): Managed
     update: unused,
     rollback: unused,
     recover: unused,
+    restart: unused,
     stop: unused,
     cancelStop: unused,
     forget: unused,
