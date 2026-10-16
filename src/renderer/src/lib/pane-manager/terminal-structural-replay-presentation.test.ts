@@ -286,7 +286,7 @@ describe('structural replay presentation', () => {
     })
   })
 
-  it('still replays and cleans up when a canvas cannot be copied', async () => {
+  it('leaves the screen shown when its canvas cannot be copied', async () => {
     const { terminal, screen } = createTerminal()
     screen.append(document.createElement('canvas'))
     vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockImplementation(() => {
@@ -294,16 +294,16 @@ describe('structural replay presentation', () => {
     })
     const coordinator = createTerminalStructuralReplayCoordinator(terminal)
     await coordinator.run(() => {
-      expect(screen.style.opacity).toBe('0')
+      expect(screen.style.opacity).toBe('')
       expect(terminal.element.querySelector('[data-terminal-replay-frame]')).toBeNull()
     })
     expect(screen.style.opacity).toBe('')
   })
 
-  it('does not force a synchronized-output frame open while capturing the old image', async () => {
+  it('keeps a WebGL screen shown rather than publishing a synchronized-output frame', async () => {
     const { terminal, screen } = createTerminal()
     screen.append(document.createElement('canvas'))
-    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(null)
+    const getContext = vi.spyOn(HTMLCanvasElement.prototype, 'getContext')
     const renderRows = vi.fn()
     const refreshRows = vi.fn()
     const synchronized = {
@@ -312,18 +312,68 @@ describe('structural replay presentation', () => {
         ...terminal._core,
         coreService: { decPrivateModes: { synchronizedOutput: true } },
         _renderService: {
-          _isPaused: false,
+          _isPaused: true,
           refreshRows,
           _renderer: { value: { renderRows } }
         }
       }
     }
     await createTerminalStructuralReplayCoordinator(synchronized).run(() => {
-      expect(refreshRows).toHaveBeenCalledWith(0, 58, true)
-      expect(renderRows).not.toHaveBeenCalled()
-      expect(terminal._core.refresh).not.toHaveBeenCalled()
+      expect(screen.style.opacity).toBe('')
+      expect(terminal.element.querySelector('[data-terminal-replay-frame]')).toBeNull()
     })
-    expect(renderRows).toHaveBeenCalledTimes(1)
+    expect(refreshRows).not.toHaveBeenCalled()
+    expect(renderRows).not.toHaveBeenCalled()
+    expect(terminal._core.refresh).not.toHaveBeenCalled()
+    expect(getContext).not.toHaveBeenCalled()
+  })
+
+  it('still retains a DOM frame during synchronized output without repainting it', async () => {
+    const { terminal, screen } = createTerminal()
+    const refreshRows = vi.fn()
+    const synchronized = {
+      ...terminal,
+      _core: {
+        ...terminal._core,
+        coreService: { decPrivateModes: { synchronizedOutput: true } },
+        _renderService: { _isPaused: false, refreshRows }
+      }
+    }
+    await createTerminalStructuralReplayCoordinator(synchronized).run(() => {
+      expect(screen.style.opacity).toBe('0')
+      expect(terminal.element.querySelector('[data-terminal-replay-frame]')?.textContent).toBe(
+        'Last coherent frame'
+      )
+      expect(refreshRows).not.toHaveBeenCalled()
+    })
+    expect(screen.style.opacity).toBe('')
+  })
+
+  it('keeps decorations positioned in the retained frame', async () => {
+    const { terminal, screen } = createTerminal()
+    const style = document.createElement('style')
+    style.textContent =
+      '.xterm-screen .xterm-decoration-container .xterm-decoration { position: absolute; z-index: 6; }'
+    document.head.append(style)
+    const container = document.createElement('div')
+    container.className = 'xterm-decoration-container'
+    const decoration = document.createElement('div')
+    decoration.className = 'xterm-decoration'
+    decoration.style.top = '32px'
+    container.append(decoration)
+    screen.append(container)
+    try {
+      await createTerminalStructuralReplayCoordinator(terminal).run(() => {
+        const copy = terminal.element.querySelector<HTMLElement>(
+          '[data-terminal-replay-frame] .xterm-decoration'
+        )
+        expect(copy?.style.position).toBe('absolute')
+        expect(copy?.style.zIndex).toBe('6')
+        expect(copy?.style.top).toBe('32px')
+      })
+    } finally {
+      style.remove()
+    }
   })
 
   it('releases the screen even if a disposed renderer rejects the final present', async () => {

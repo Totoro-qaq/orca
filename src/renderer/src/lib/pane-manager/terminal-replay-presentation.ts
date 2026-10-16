@@ -1,6 +1,7 @@
 import {
   forceFullViewportPresent,
-  requestFullViewportPresent
+  forceRepaintThroughRenderPause,
+  isSynchronizedOutputHeld
 } from './terminal-render-pause-release'
 import { retainTerminalReplayFrame } from './terminal-replay-frame'
 
@@ -78,13 +79,22 @@ export function beginTerminalReplayPresentation(
   }
   let presentation = presentations.get(screen)
   if (!presentation) {
+    const capture = retainTerminalReplayFrame(screen, () => {
+      // Capturing must not publish an application's unfinished DEC 2026 frame.
+      if (isSynchronizedOutputHeld(terminal)) {
+        return false
+      }
+      if (!forceRepaintThroughRenderPause(terminal)) {
+        refresh()
+      }
+      return true
+    })
+    if (capture.kind === 'unavailable') {
+      // Why: a mis-sized intermediate paint beats a blank pane.
+      return () => {}
+    }
     const created: ReplayPresentation = {
-      frame: retainTerminalReplayFrame(screen, () => {
-        // Capturing must not end an application's DEC 2026 frame.
-        if (!requestFullViewportPresent(terminal)) {
-          refresh()
-        }
-      }),
+      frame: capture.kind === 'retained' ? capture.frame : null,
       opacity: screen.style.getPropertyValue('opacity'),
       priority: screen.style.getPropertyPriority('opacity'),
       pending: 0,
