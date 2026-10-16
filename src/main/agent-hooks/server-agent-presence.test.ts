@@ -438,6 +438,20 @@ describe('retained agent exit', () => {
     expect(await server.checkAgentPresenceSince(PANE, attachedAt)).toBeNull()
   })
 
+  it('does not retain an old owner death proved by a live replacement hook', async () => {
+    const server = await createServer()
+    const attachedAt = Date.now() - 1
+    await hook(server, 'SessionStart')
+    probe.mockResolvedValue('exited')
+    await hook(server, 'SessionStart', 'replacement', undefined, 4002)
+    await vi.waitFor(() => expect(probe).toHaveBeenCalled())
+    probe.mockResolvedValue('live')
+    await vi.waitFor(async () =>
+      expect(await server.checkAgentPresenceSince(PANE, attachedAt)).not.toBe('exited')
+    )
+    expect(await server.checkAgentPresenceSince(PANE, attachedAt)).not.toBe('exited')
+  })
+
   it('drops the exit once a new agent reports from the pane', async () => {
     const server = await createServer()
     const attachedAt = Date.now() - 1

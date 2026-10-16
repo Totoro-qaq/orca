@@ -17,9 +17,16 @@ export abstract class AgentHookServerAgentPresence extends AgentHookServerLifecy
     const sender = event.agentPresence?.process
     const owner = row.agentPresence
     if (sender && owner?.process && !owner.ended && !isSameAgentProcess(sender, owner.process)) {
-      void this.checkAgentPresence(row.paneKey)
+      const paneKey = this.resolvePaneKeyAlias(row.paneKey)
+      this.ownerChallengedByLiveSender.add(paneKey)
+      void this.checkAgentPresence(paneKey).finally(() =>
+        this.ownerChallengedByLiveSender.delete(paneKey)
+      )
     }
   }
+
+  // Why: a live process already reports from these panes, so their owner's exit is not the pane's.
+  private readonly ownerChallengedByLiveSender = new Set<string>()
 
   /** Whether this pane's owner carries a process identity that its execution host can check. */
   hasVerifiableAgentProcess(paneKey: string): boolean {
@@ -72,6 +79,9 @@ export abstract class AgentHookServerAgentPresence extends AgentHookServerLifecy
             preserveResumeIdentity: true,
             endedPresence: { ...presence, ended: true }
           })
+          if (this.ownerChallengedByLiveSender.has(resolved)) {
+            this.forgetAgentExit(resolved)
+          }
         }
         return verdict
       })
