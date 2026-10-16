@@ -1,7 +1,4 @@
-import type {
-  TerminalLayoutSnapshot,
-  TerminalPaneLayoutNode
-} from '../../../shared/terminal-tab-types'
+import type { TerminalLayoutSnapshot, TerminalPaneLayoutNode } from './terminal-tab-types'
 
 /** Exported so pty-topology gates can reuse the leaf-map comparison this equality already defines. */
 export function sameStringRecord(
