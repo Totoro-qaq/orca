@@ -22,7 +22,7 @@ import {
   type DesktopBrowserBridgeCandidate
 } from '../browser/desktop-browser-bridge/desktop-browser-bridge-manager'
 import { executeDesktopBrowserBridgeRequest } from '../browser/desktop-browser-bridge/desktop-browser-bridge-executor'
-import { rendererAuthorizesRemoteCliWorkspace } from '../browser/desktop-browser-bridge/desktop-browser-bridge-renderer-scope'
+import { rendererResolveRemoteCliWorkspace } from '../browser/desktop-browser-bridge/desktop-browser-bridge-renderer-scope'
 import type { OrcaRuntimeService } from '../runtime/orca-runtime'
 import { RpcDispatcher } from '../runtime/rpc/dispatcher'
 import { ALL_RPC_METHODS } from '../runtime/rpc/methods'
@@ -100,10 +100,10 @@ export function installDesktopBrowserBridge(options: {
       const status = await getRuntimeEnvironmentStatus(userDataPath, environmentId, undefined, {
         observeOnly: true
       })
-      return (
-        status.ok === true &&
-        (status.result.capabilities ?? []).includes(DESKTOP_BROWSER_BRIDGE_RUNTIME_CAPABILITY)
-      )
+      if (!status.ok) {
+        throw new Error(status.error.code)
+      }
+      return (status.result.capabilities ?? []).includes(DESKTOP_BROWSER_BRIDGE_RUNTIME_CAPABILITY)
     },
     subscribe: (environmentId) => async (callbacks) => {
       await ensureOrcadManagedTunnel(userDataPath, environmentId)
@@ -132,8 +132,12 @@ export function installDesktopBrowserBridge(options: {
       executeDesktopBrowserBridgeRequest(request, {
         environmentId: candidate.environmentId,
         hostLabel: candidate.hostLabel,
-        authorizeWorkspace: (workspaceId) =>
-          rendererAuthorizesRemoteCliWorkspace(getMainWindow, candidate.environmentId, workspaceId),
+        resolveWorkspace: (scope) =>
+          rendererResolveRemoteCliWorkspace(getMainWindow, {
+            environmentId: candidate.environmentId,
+            ...(scope.workspaceId ? { workspaceId: scope.workspaceId } : {}),
+            ...(scope.page ? { pageId: scope.page } : {})
+          }),
         worktreeIdForPage: (browserPageId) =>
           browserManager.getWorktreeIdForTab(browserPageId) ?? null,
         dispatch: (method, params) =>

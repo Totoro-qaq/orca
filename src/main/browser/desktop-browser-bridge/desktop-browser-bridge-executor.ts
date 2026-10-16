@@ -31,8 +31,15 @@ export type DesktopBrowserBridgeAuditEntry = {
 export type DesktopBrowserBridgeExecutorDeps = {
   environmentId: string
   hostLabel: string
-  /** True only when this desktop shows `workspaceId` as owned by the environment's own machine. */
-  authorizeWorkspace(workspaceId: string): Promise<boolean>
+  /**
+   * The workspace this desktop shows as owned by the environment's own machine for the named page
+   * and/or workspace, or null. A page that has not mounted yet is known only to the renderer.
+   */
+  resolveWorkspace(scope: {
+    workspaceId: string | null
+    page: string | null
+  }): Promise<string | null>
+  /** The workspace a mounted page registered under, if it has mounted. */
   worktreeIdForPage(browserPageId: string): string | null
   dispatch(method: string, params: Record<string, unknown>): Promise<RpcResponse>
   audit(entry: DesktopBrowserBridgeAuditEntry): void
@@ -61,12 +68,12 @@ export async function executeDesktopBrowserBridgeRequest(
   request: DesktopBrowserBridgeRequest,
   deps: DesktopBrowserBridgeExecutorDeps
 ): Promise<DesktopBrowserBridgeOutcome> {
-  const audit = {
+  const audit: Omit<DesktopBrowserBridgeAuditEntry, 'outcome' | 'code'> = {
     environmentId: deps.environmentId,
     hostLabel: deps.hostLabel,
     method: request.method,
-    workspaceId: null as string | null,
-    page: null as string | null,
+    workspaceId: null,
+    page: null,
     urlOrigin: urlOrigin(request.params.url)
   }
   try {
@@ -110,25 +117,23 @@ async function scopeRequest(
       delete params[key]
     }
   }
-  let workspaceId = request.workspaceId ?? null
-  if (params.worktree !== undefined && (!workspaceId || params.worktree !== `id:${workspaceId}`)) {
+  const requestedWorkspaceId = request.workspaceId ?? null
+  if (
+    params.worktree !== undefined &&
+    (!requestedWorkspaceId || params.worktree !== `id:${requestedWorkspaceId}`)
+  ) {
     throw outOfScope()
   }
   const page = typeof params.page === 'string' && params.page.length > 0 ? params.page : null
-  if (page) {
-    const pageWorkspaceId = deps.worktreeIdForPage(page)
-    if (!pageWorkspaceId || (workspaceId && pageWorkspaceId !== workspaceId)) {
-      throw new BridgeRefusal('browser_tab_not_found', `Browser page ${page} was not found`)
-    }
-    workspaceId = pageWorkspaceId
-  }
-  if (!workspaceId) {
+  if (!requestedWorkspaceId && !page) {
     throw new BridgeRefusal(
       DESKTOP_BROWSER_BRIDGE_SCOPE_CODE,
       'Run this command inside a workspace on this host, or pass --worktree, so Orca knows which workspace’s browser tabs it may use.'
     )
   }
-  if (!(await deps.authorizeWorkspace(workspaceId))) {
+  const workspaceId = await deps.resolveWorkspace({ workspaceId: requestedWorkspaceId, page })
+  const mountedWorkspaceId = page ? deps.worktreeIdForPage(page) : null
+  if (!workspaceId || (mountedWorkspaceId && mountedWorkspaceId !== workspaceId)) {
     // Why the same refusal for a foreign page: an unknown and a forbidden page must look alike.
     throw page
       ? new BridgeRefusal('browser_tab_not_found', `Browser page ${page} was not found`)

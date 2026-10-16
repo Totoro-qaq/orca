@@ -21,8 +21,9 @@ export const DESKTOP_BROWSER_BRIDGE_UNAVAILABLE_MESSAGE = `No Orca desktop is sh
 /**
  * The only commands a host may run on the desktop browser. Narrower than the relay bridge before
  * 1.4.225, which ran any CLI command on the desktop: nothing here reads or writes desktop files
- * (upload, download, pdf), reads the desktop clipboard or cookie jar, runs raw agent-browser
- * commands, changes browser profiles or identity, or bypasses certificate errors.
+ * (upload, download, pdf), reads the desktop clipboard, cookie jar or request headers (network),
+ * runs raw agent-browser commands, changes browser profiles or identity, or bypasses certificate
+ * errors.
  */
 export const DESKTOP_BROWSER_BRIDGE_METHODS: ReadonlySet<string> = new Set([
   'browser.tabList',
@@ -44,7 +45,6 @@ export const DESKTOP_BROWSER_BRIDGE_METHODS: ReadonlySet<string> = new Set([
   'browser.wait',
   'browser.eval',
   'browser.console',
-  'browser.network',
   'browser.click',
   'browser.dblclick',
   'browser.fill',
@@ -70,6 +70,17 @@ export const DESKTOP_BROWSER_BRIDGE_METHODS: ReadonlySet<string> = new Set([
   'browser.dialogAccept',
   'browser.dialogDismiss'
 ])
+
+/** Main asks the renderer, which owns the workspace-to-host map, what a host may reach. */
+export type RemoteCliBrowserScopeQuery = {
+  requestId: string
+  environmentId: string
+  workspaceId?: string
+  pageId?: string
+}
+
+/** The workspace the host may use for this command, or null to refuse it. */
+export type RemoteCliBrowserScopeReply = { requestId: string; workspaceId: string | null }
 
 export function isDesktopBrowserBridgeMethod(method: string): boolean {
   return DESKTOP_BROWSER_BRIDGE_METHODS.has(method)

@@ -9,8 +9,8 @@ import { useAppStore } from '../../store'
 import { acquireBrowserAutomationBootstrapLease } from './browser-automation-bootstrap-lease'
 import {
   findBrowserTabWorktreeId,
-  isBrowserWorkspaceOwnedByEnvironment,
-  isBrowserWorkspaceOwnedByPairedServer
+  isBrowserWorkspaceOwnedByPairedServer,
+  resolveRemoteCliBrowserWorkspace
 } from './browser-request-workspace-owner'
 
 function pairedServerWorkspaceError(): string {
@@ -25,18 +25,14 @@ function pairedServerWorkspaceError(): string {
 export function registerBrowserRequestIpcBridge(unsubs: (() => void)[]): void {
   unsubs.push(
     window.api.ui.onRequestRemoteCliBrowserScope((data) => {
-      let allowed = false
+      let workspaceId: string | null = null
       try {
-        allowed = isBrowserWorkspaceOwnedByEnvironment(
-          useAppStore.getState(),
-          data.workspaceId,
-          data.environmentId
-        )
+        workspaceId = resolveRemoteCliBrowserWorkspace(useAppStore.getState(), data)
       } catch {
         // Why: an owner this window cannot prove is a refusal, never a pass.
-        allowed = false
+        workspaceId = null
       }
-      window.api.ui.replyRemoteCliBrowserScope({ requestId: data.requestId, allowed })
+      window.api.ui.replyRemoteCliBrowserScope({ requestId: data.requestId, workspaceId })
     })
   )
   unsubs.push(
@@ -77,6 +73,9 @@ export function registerBrowserRequestIpcBridge(unsubs: (() => void)[]): void {
           targetGroupId: data.activate ? undefined : activeBrowserUnifiedTab?.groupId,
           sessionProfileId: data.sessionProfileId,
           sessionPartition: data.sessionPartition,
+          // Why null, not inferred: this desktop's runtime only ever asks for a page this desktop
+          // renders, including one in a managed SSH host's workspace (as the tab bar's + does).
+          browserRuntimeEnvironmentId: null,
           activate: data.activate === true
         })
         // Why: registerGuest fires with the page ID, not the workspace ID; return it so waitForTabRegistration can correlate.

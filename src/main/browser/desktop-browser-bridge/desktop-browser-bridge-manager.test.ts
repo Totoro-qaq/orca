@@ -108,6 +108,17 @@ describe('DesktopBrowserBridgeManager', () => {
     expect(h.timers).toEqual([expect.objectContaining({ delayMs: 5 * 60_000 })])
   })
 
+  it('retries soon when the server could not answer, instead of treating it as old', async () => {
+    const h = harness()
+    h.supportsBridge.mockRejectedValueOnce(new Error('runtime_unavailable'))
+    h.manager.reconcile()
+    await vi.waitFor(() => expect(h.timers).toHaveLength(1))
+
+    expect(h.timers[0]!.delayMs).toBe(2_000)
+    h.timers[0]!.run()
+    await vi.waitFor(() => expect(h.subscriptions).toHaveLength(1))
+  })
+
   it('detaches at once when the setting turns off or the host disconnects', async () => {
     const h = harness()
     h.manager.reconcile()

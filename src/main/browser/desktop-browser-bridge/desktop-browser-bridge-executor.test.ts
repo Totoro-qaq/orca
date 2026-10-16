@@ -12,9 +12,32 @@ import {
 
 const HOST_WORKSPACE = 'repo-host::/srv/app'
 const LOCAL_WORKSPACE = 'repo-local::/Users/me/app'
+// What the renderer knows: every page record, mounted or not.
 const PAGE_OWNERS: Record<string, string> = {
   'host-page': HOST_WORKSPACE,
+  'unmounted-host-page': HOST_WORKSPACE,
   'local-page': LOCAL_WORKSPACE
+}
+// What main's browser registry knows: only pages whose webview has mounted.
+const MOUNTED_PAGE_OWNERS: Record<string, string> = {
+  'host-page': HOST_WORKSPACE,
+  'local-page': LOCAL_WORKSPACE
+}
+
+/** The renderer's answer: the page's or named workspace, if this host owns it. */
+async function rendererScope(scope: {
+  workspaceId: string | null
+  page: string | null
+}): Promise<string | null> {
+  const pageWorkspace = scope.page ? (PAGE_OWNERS[scope.page] ?? null) : null
+  if (scope.page && !pageWorkspace) {
+    return null
+  }
+  if (scope.workspaceId && pageWorkspace && scope.workspaceId !== pageWorkspace) {
+    return null
+  }
+  const workspaceId = pageWorkspace ?? scope.workspaceId
+  return workspaceId === HOST_WORKSPACE ? workspaceId : null
 }
 
 function request(overrides: Partial<DesktopBrowserBridgeRequest>): DesktopBrowserBridgeRequest {
@@ -33,8 +56,8 @@ function deps(overrides: Partial<DesktopBrowserBridgeExecutorDeps> = {}) {
   const value: DesktopBrowserBridgeExecutorDeps = {
     environmentId: 'env-host',
     hostLabel: 'sandbox',
-    authorizeWorkspace: async (workspaceId) => workspaceId === HOST_WORKSPACE,
-    worktreeIdForPage: (page) => PAGE_OWNERS[page] ?? null,
+    resolveWorkspace: rendererScope,
+    worktreeIdForPage: (page) => MOUNTED_PAGE_OWNERS[page] ?? null,
     dispatch: async (method, params) => {
       // Inside the dispatch, a selector for any other workspace must be refused.
       const scopeProbe = await resolveRemoteCliBrowserScopeSelector(`id:${LOCAL_WORKSPACE}`)?.catch(
@@ -247,15 +270,48 @@ describe('executeDesktopBrowserBridgeRequest', () => {
   })
 
   it('treats a renderer that cannot answer as a refusal', async () => {
-    const authorizeWorkspace = vi.fn(async () => false)
-    const { value, dispatched } = deps({ authorizeWorkspace })
+    const resolveWorkspace = vi.fn(async () => null)
+    const { value, dispatched } = deps({ resolveWorkspace })
 
     await executeDesktopBrowserBridgeRequest(
       request({ workspaceId: HOST_WORKSPACE, params: { worktree: `id:${HOST_WORKSPACE}` } }),
       value
     )
 
-    expect(authorizeWorkspace).toHaveBeenCalledWith(HOST_WORKSPACE)
+    expect(resolveWorkspace).toHaveBeenCalledWith({ workspaceId: HOST_WORKSPACE, page: null })
+    expect(dispatched).toEqual([])
+  })
+
+  it('drives a host page the renderer knows before its webview has mounted', async () => {
+    const { value, dispatched } = deps()
+
+    const outcome = await executeDesktopBrowserBridgeRequest(
+      request({
+        method: 'browser.goto',
+        params: { page: 'unmounted-host-page', url: 'https://a.test' }
+      }),
+      value
+    )
+
+    expect(outcome).toEqual({ ok: true, result: { done: true } })
+    expect(dispatched[0]?.params).toEqual({
+      page: 'unmounted-host-page',
+      url: 'https://a.test',
+      worktree: `id:${HOST_WORKSPACE}`
+    })
+  })
+
+  it('refuses a page whose mounted webview registered under another workspace', async () => {
+    const { value, dispatched } = deps({
+      worktreeIdForPage: (page) => (page === 'host-page' ? LOCAL_WORKSPACE : null)
+    })
+
+    const outcome = await executeDesktopBrowserBridgeRequest(
+      request({ params: { page: 'host-page' } }),
+      value
+    )
+
+    expect(outcome).toMatchObject({ ok: false, error: { code: 'browser_tab_not_found' } })
     expect(dispatched).toEqual([])
   })
 })

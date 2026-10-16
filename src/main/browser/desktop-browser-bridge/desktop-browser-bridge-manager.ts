@@ -20,6 +20,7 @@ export type DesktopBrowserBridgeCandidate = {
 export type DesktopBrowserBridgeManagerDeps = {
   /** The hosts that may attach now: setting on, SSH connected, managed environment linked. */
   listCandidates(): DesktopBrowserBridgeCandidate[]
+  /** False when the server answers without the capability; throws when it could not answer. */
   supportsBridge(environmentId: string): Promise<boolean>
   subscribe(environmentId: string): DesktopBrowserBridgeSubscribe
   execute(
@@ -96,11 +97,15 @@ export class DesktopBrowserBridgeManager {
       return
     }
     entry.starting = true
-    let supported = false
+    let supported: boolean
     try {
       supported = await this.deps.supportsBridge(environmentId)
-    } catch {
-      supported = false
+    } catch (error) {
+      // Why not "unsupported": a server that did not answer yet (tunnel rebuilding) says nothing about its version.
+      if (this.entries.get(environmentId) === entry) {
+        this.retryAfterFailure(environmentId, entry, error)
+      }
+      return
     } finally {
       entry.starting = false
     }
@@ -123,19 +128,22 @@ export class DesktopBrowserBridgeManager {
           return
         }
         entry.connection = null
-        entry.failures += 1
-        this.deps.log(
-          `lost: host=${entry.candidate.hostLabel} env=${environmentId} (${error.message})`
-        )
-        this.scheduleRetry(
-          environmentId,
-          entry,
-          Math.min(MAX_RETRY_MS, MIN_RETRY_MS * 2 ** Math.min(entry.failures - 1, 5))
-        )
+        this.retryAfterFailure(environmentId, entry, error)
       }
     })
     entry.connection = connection
     await connection.start()
+  }
+
+  private retryAfterFailure(environmentId: string, entry: Entry, error: unknown): void {
+    entry.failures += 1
+    const message = error instanceof Error ? error.message : String(error)
+    this.deps.log(`lost: host=${entry.candidate.hostLabel} env=${environmentId} (${message})`)
+    this.scheduleRetry(
+      environmentId,
+      entry,
+      Math.min(MAX_RETRY_MS, MIN_RETRY_MS * 2 ** Math.min(entry.failures - 1, 5))
+    )
   }
 
   private scheduleRetry(environmentId: string, entry: Entry, delayMs: number): void {

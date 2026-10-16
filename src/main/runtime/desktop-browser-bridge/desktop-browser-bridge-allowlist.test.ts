@@ -3,7 +3,9 @@ import { DESKTOP_BROWSER_BRIDGE_METHODS } from '../../../shared/desktop-browser-
 import { ALL_RPC_METHODS } from '../rpc/methods'
 
 describe('desktop browser bridge allowlist', () => {
-  const registered = new Map(ALL_RPC_METHODS.map((method) => [method.name, method]))
+  const registered = new Map<string, (typeof ALL_RPC_METHODS)[number]>(
+    ALL_RPC_METHODS.map((method) => [method.name, method])
+  )
 
   it('names only real one-shot browser methods in the workspace tier', () => {
     for (const name of DESKTOP_BROWSER_BRIDGE_METHODS) {
@@ -28,6 +30,7 @@ describe('desktop browser bridge allowlist', () => {
         'browser.cookie.get',
         'browser.cookie.set',
         'browser.cookie.delete',
+        'browser.network',
         'browser.clipboardRead',
         'browser.clipboardWrite',
         'browser.storage.local.get',

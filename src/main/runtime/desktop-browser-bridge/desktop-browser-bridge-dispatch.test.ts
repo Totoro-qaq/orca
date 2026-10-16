@@ -1,5 +1,6 @@
 import '../rpc/unused-default-rpc-methods.test-fixture'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { z } from 'zod'
 import {
   DESKTOP_BROWSER_BRIDGE_RUNTIME_CAPABILITY,
   DESKTOP_BROWSER_BRIDGE_SETTING_LABEL
@@ -15,6 +16,9 @@ import {
   setDesktopBrowserBridgeHostEnabled
 } from './desktop-browser-bridge-registry'
 import { routeDesktopBrowserBridgeRpc } from './desktop-browser-bridge-route'
+
+const ReadyEvent = z.object({ type: z.literal('ready'), attachmentId: z.string() })
+const ForwardedEvent = z.object({ requestId: z.string() }).passthrough()
 
 const localGoto = vi.fn(async () => ({ url: 'local', title: '' }))
 const localCookie = vi.fn(async () => ({ cookies: [] }))
@@ -105,20 +109,14 @@ describe('desktop browser bridge on orcad', () => {
     const { runtime } = orcadRuntime()
     const dispatcher = new RpcDispatcher({ runtime, methods: METHODS })
     const { events } = await attachDesktop(dispatcher)
-    const ready = events[0] as { type: string; attachmentId: string }
-    expect(ready.type).toBe('ready')
+    const ready = ReadyEvent.parse(events[0])
 
     const call = cliCall(dispatcher, 'browser.goto', {
       url: 'https://example.com',
       worktree: 'path:/srv/app'
     })
     await vi.waitFor(() => expect(events).toHaveLength(2))
-    const forwarded = events[1] as {
-      requestId: string
-      method: string
-      workspaceId: string
-      params: Record<string, unknown>
-    }
+    const forwarded = ForwardedEvent.parse(events[1])
     // orcad resolves its own selector and pins the forwarded call to that workspace id.
     expect(forwarded).toMatchObject({
       type: 'request',

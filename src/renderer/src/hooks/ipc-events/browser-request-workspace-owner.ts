@@ -36,6 +36,29 @@ export function isBrowserWorkspaceOwnedByEnvironment(
   )
 }
 
+/**
+ * The workspace a managed SSH host's forwarded command may use: the named page's workspace (it may
+ * not have mounted yet, so main cannot know it), or the named workspace, owned by that host.
+ */
+export function resolveRemoteCliBrowserWorkspace(
+  state: WorktreeOperationRouteState &
+    Pick<AppState, 'browserTabsByWorktree' | 'browserPagesByWorkspace'>,
+  query: { environmentId: string; workspaceId?: string; pageId?: string }
+): string | null {
+  const pageWorkspaceId = query.pageId ? findBrowserTabWorktreeId(state, query.pageId) : null
+  if (query.pageId && !pageWorkspaceId) {
+    return null
+  }
+  if (query.workspaceId && pageWorkspaceId && query.workspaceId !== pageWorkspaceId) {
+    return null
+  }
+  const workspaceId = pageWorkspaceId ?? query.workspaceId ?? null
+  return workspaceId &&
+    isBrowserWorkspaceOwnedByEnvironment(state, workspaceId, query.environmentId)
+    ? workspaceId
+    : null
+}
+
 /** The workspace holding a browser tab, addressed by its tab (workspace) id or one of its page ids. */
 export function findBrowserTabWorktreeId(
   state: Pick<AppState, 'browserTabsByWorktree' | 'browserPagesByWorkspace'>,

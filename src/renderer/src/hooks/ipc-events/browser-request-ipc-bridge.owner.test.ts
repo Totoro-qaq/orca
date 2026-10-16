@@ -3,7 +3,12 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 type CreateRequest = { requestId: string; worktreeId?: string; url: string }
 type CloseRequest = { requestId: string; tabId?: string | null; worktreeId?: string }
-type ScopeRequest = { requestId: string; environmentId: string; workspaceId: string }
+type ScopeRequest = {
+  requestId: string
+  environmentId: string
+  workspaceId?: string
+  pageId?: string
+}
 
 const mocks = vi.hoisted(() => {
   const listeners: {
@@ -115,6 +120,19 @@ describe('browser requests from this desktop follow the workspace owner (#22275)
     expect(mocks.replyTabCreate).toHaveBeenCalledWith({ requestId: 'r1', browserPageId: 'ws-new' })
   })
 
+  it("renders a page named in a managed host's workspace on this desktop (#29145)", () => {
+    mocks.getState.mockReturnValue(storeState(LOCAL_WT))
+
+    mocks.createListener?.({ requestId: 'r3', worktreeId: REMOTE_WT, url: 'https://a.test' })
+
+    // A missing runtime id would be inferred from the workspace and stream the server's page instead.
+    expect(mocks.createBrowserTab).toHaveBeenCalledWith(
+      REMOTE_WT,
+      'https://a.test',
+      expect.objectContaining({ browserRuntimeEnvironmentId: null })
+    )
+  })
+
   it("refuses to fall back to a paired server's active workspace", () => {
     mocks.getState.mockReturnValue(storeState(REMOTE_WT))
 
@@ -175,10 +193,31 @@ describe('a managed SSH host reaches only its own workspaces on this desktop (#2
     mocks.scopeListener?.({ requestId: 's4', environmentId: 'env-remote', workspaceId: 'nope::/x' })
 
     expect(mocks.replyRemoteCliBrowserScope.mock.calls.map(([reply]) => reply)).toEqual([
-      { requestId: 's1', allowed: true },
-      { requestId: 's2', allowed: false },
-      { requestId: 's3', allowed: false },
-      { requestId: 's4', allowed: false }
+      { requestId: 's1', workspaceId: REMOTE_WT },
+      { requestId: 's2', workspaceId: null },
+      { requestId: 's3', workspaceId: null },
+      { requestId: 's4', workspaceId: null }
+    ])
+  })
+
+  it('resolves a page to its workspace, and refuses a page of another workspace', () => {
+    mocks.getState.mockReturnValue(storeState(LOCAL_WT))
+
+    mocks.scopeListener?.({ requestId: 'p1', environmentId: 'env-remote', pageId: 'page-remote' })
+    mocks.scopeListener?.({ requestId: 'p2', environmentId: 'env-remote', pageId: 'page-local' })
+    mocks.scopeListener?.({
+      requestId: 'p3',
+      environmentId: 'env-remote',
+      pageId: 'page-local',
+      workspaceId: REMOTE_WT
+    })
+    mocks.scopeListener?.({ requestId: 'p4', environmentId: 'env-remote', pageId: 'missing' })
+
+    expect(mocks.replyRemoteCliBrowserScope.mock.calls.map(([reply]) => reply)).toEqual([
+      { requestId: 'p1', workspaceId: REMOTE_WT },
+      { requestId: 'p2', workspaceId: null },
+      { requestId: 'p3', workspaceId: null },
+      { requestId: 'p4', workspaceId: null }
     ])
   })
 
@@ -191,7 +230,7 @@ describe('a managed SSH host reaches only its own workspaces on this desktop (#2
 
     expect(mocks.replyRemoteCliBrowserScope).toHaveBeenCalledWith({
       requestId: 's5',
-      allowed: false
+      workspaceId: null
     })
   })
 })

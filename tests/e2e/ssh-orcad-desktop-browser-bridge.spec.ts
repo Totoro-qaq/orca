@@ -7,7 +7,8 @@
  * the fixture origin) and `orca goto` navigates it. Off again, the host is refused at once.
  */
 import type { ElectronApplication, Page } from '@stablyai/playwright-test'
-import { expect, test } from './helpers/orca-app'
+import { z } from 'zod'
+import { expect, forwardElectronProcessLogs, test } from './helpers/orca-app'
 import { createRestartSession } from './helpers/orca-restart'
 import { waitForSessionReady } from './helpers/store'
 import {
@@ -37,11 +38,12 @@ import { DESKTOP_BROWSER_BRIDGE_SETTING_LABEL } from '../../src/shared/desktop-b
 
 skipUnlessManagedDockerHost()
 
-type CliResult = {
-  ok: boolean
-  result?: Record<string, unknown>
-  error?: { code: string; message: string }
-}
+const CliResult = z.object({
+  ok: z.boolean(),
+  result: z.record(z.string(), z.unknown()).optional(),
+  error: z.object({ code: z.string(), message: z.string() }).optional()
+})
+type CliResult = z.infer<typeof CliResult>
 
 let step = 0
 
@@ -62,7 +64,7 @@ async function hostCli(
     `${command} --json > ${out} 2>&1; printf '%s_%s\\n' BRIDGE_${step} DONE`
   )
   await expectPaneText(page, tabId, marker, 90_000)
-  return JSON.parse(execDockerSshHostTargetCommand(target, `cat ${out}`)) as CliResult
+  return CliResult.parse(JSON.parse(execDockerSshHostTargetCommand(target, `cat ${out}`)))
 }
 
 /** Retries until the desktop has attached its bridge, since the attach follows the setting change. */
@@ -72,17 +74,22 @@ async function hostCliUntilOk(
   tabId: string,
   command: string
 ): Promise<CliResult> {
-  let last: CliResult | null = null
-  await expect
-    .poll(
-      async () => {
-        last = await hostCli(page, target, tabId, command)
-        return last.ok
-      },
-      { timeout: 120_000, intervals: [2_000], message: 'the host CLI never reached the desktop' }
-    )
-    .toBe(true)
-  return last!
+  const results: CliResult[] = []
+  try {
+    await expect
+      .poll(
+        async () => {
+          const result = await hostCli(page, target, tabId, command)
+          results.push(result)
+          return result.ok
+        },
+        { timeout: 120_000, intervals: [2_000], message: 'the host CLI never reached the desktop' }
+      )
+      .toBe(true)
+  } catch (error) {
+    throw new Error(`${String(error)}\nlast CLI result: ${JSON.stringify(results.at(-1))}`)
+  }
+  return results.at(-1)!
 }
 
 function setRemoteCliControl(page: Page, targetId: string, enabled: boolean): Promise<unknown> {
@@ -131,6 +138,7 @@ test('a managed SSH host drives the desktop browser only while its CLI control s
     )
     const launched = await session.launch()
     app = launched.app
+    forwardElectronProcessLogs(app, testInfo)
     const page = launched.page
     await waitForSessionReady(page)
     await convertAndRetain(page, session.userDataDir, seeded)
@@ -159,21 +167,27 @@ test('a managed SSH host drives the desktop browser only while its CLI control s
         message: 'the desktop tab the host opened never loaded through the host'
       })
       .toContain('/echo/bridge-created')
-
+    // Like an agent: navigate the tab it opened, then read it back.
     const navigatedUrl = `${SSH_REMOTE_ONLY_ORIGIN}/echo/bridge-navigated`
-    const navigated = await hostCli(
+    await hostCliUntilOk(
       page,
       target,
       tabId,
       `orca goto --url ${navigatedUrl} --page ${browserPageId}`
     )
-    expect(navigated.ok).toBe(true)
     await expect
       .poll(() => readSshRemoteOnlyRequests(target).map((request) => request.path), {
         timeout: 60_000,
-        message: 'the host never navigated the desktop tab'
+        message: 'the desktop tab the host drove never loaded through the host'
       })
       .toContain('/echo/bridge-navigated')
+    const snapshot = await hostCliUntilOk(
+      page,
+      target,
+      tabId,
+      `orca snapshot --page ${browserPageId}`
+    )
+    expect(JSON.stringify(snapshot.result)).toContain('cookie:')
     const listed = await hostCli(page, target, tabId, 'orca tab list')
     expect(listed.ok).toBe(true)
     expect(JSON.stringify(listed.result)).toContain(browserPageId)

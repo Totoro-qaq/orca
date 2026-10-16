@@ -52,6 +52,10 @@ import type {
   WorktreeSleepRequest,
   WorktreeSleepResponse
 } from '../../shared/worktree-sleep-request'
+import type {
+  RemoteCliBrowserScopeQuery,
+  RemoteCliBrowserScopeReply
+} from '../../shared/desktop-browser-bridge-protocol'
 
 export type CloseActiveTabPayload = { sourceId: string }
 
@@ -114,9 +118,9 @@ export type UiCommandEventApi = {
   replyTabCreate: (reply: { requestId: string; browserPageId?: string; error?: string }) => void
   /** Main asks whether a paired environment owns a workspace before running that host's CLI command. */
   onRequestRemoteCliBrowserScope: (
-    callback: (data: { requestId: string; environmentId: string; workspaceId: string }) => void
+    callback: (data: RemoteCliBrowserScopeQuery) => void
   ) => () => void
-  replyRemoteCliBrowserScope: (reply: { requestId: string; allowed: boolean }) => void
+  replyRemoteCliBrowserScope: (reply: RemoteCliBrowserScopeReply) => void
   onRequestTabSetProfile: (
     callback: (data: {
       requestId: string
