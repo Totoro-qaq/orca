@@ -19,6 +19,7 @@ import {
 import { isStructuredAgentSyntheticSleepingRecord } from './structured-agent-synthetic-sleeping-record'
 import {
   findUnhydratedHostMirrorForPane,
+  isHostMirroredSleepingRecord,
   type UnhydratedHostMirror
 } from './host-mirrored-pane-liveness'
 import { parkUntilHostMirrorHandleLands } from './host-mirror-handle-gap-wait'
@@ -283,6 +284,10 @@ export function resumeSleepingAgentSessionsForWorktree(
       // branch below — launch and clear alike — trusts that verdict. Take no
       // action on the record; the replay re-runs this pass with real evidence.
       parkWorktreeResumeSweepUntilHostMirrorAnswers(worktreeId, unhydratedMirror, options)
+      continue
+    }
+    // Mirrored rows cannot authorize a writer: closes, re-keys and pending handles look alike here.
+    if (isHostMirroredSleepingRecord(record)) {
       continue
     }
     const isPaneOwned = recordPaneIsOwnedByPreservedPane(record, currentState)
