@@ -58,12 +58,12 @@ export function findUnhydratedHostMirrorForPane(
   if (!tabId || !isWebTerminalSurfaceTabId(tabId)) {
     return null
   }
-  // Missing rows cannot arm a handle wait; the resume sweep keeps host-owned recovery parked.
+  // Missing rows cannot arm a handle wait or authorize a replacement launch.
   const worktreeTabs = state.tabsByWorktree[record.worktreeId] ?? []
   if (!worktreeTabs.some((tab) => tab.id === tabId)) {
     return null
   }
-  // A sibling handle ends the tab-level wait; the resume sweep still defers all writers to the host.
+  // A sibling handle ends the tab-level wait without authorizing a replacement launch.
   if ((state.ptyIdsByTabId[tabId]?.length ?? 0) > 0) {
     return null
   }

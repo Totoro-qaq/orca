@@ -286,10 +286,6 @@ export function resumeSleepingAgentSessionsForWorktree(
       parkWorktreeResumeSweepUntilHostMirrorAnswers(worktreeId, unhydratedMirror, options)
       continue
     }
-    // Mirrored rows cannot authorize a writer: closes, re-keys and pending handles look alike here.
-    if (isHostMirroredSleepingRecord(record)) {
-      continue
-    }
     const isPaneOwned = recordPaneIsOwnedByPreservedPane(record, currentState)
     if (activationTreatsNoteAsFinished(record)) {
       // Why: completed-agent hibernation is passive history; activation should
@@ -321,6 +317,10 @@ export function resumeSleepingAgentSessionsForWorktree(
       continue
     }
     if (isPaneOwned) {
+      continue
+    }
+    // Mirrored rows cannot authorize a writer: closes, re-keys and pending handles look alike here.
+    if (isHostMirroredSleepingRecord(record)) {
       continue
     }
     if (launchSleepingAgentSession(record, options)) {
