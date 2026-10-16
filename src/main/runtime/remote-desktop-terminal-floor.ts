@@ -204,9 +204,12 @@ export class RemoteDesktopTerminalFloor {
     }
     let changed = false
     let removedOwnerClientId: string | null = null
+    let removedOwnerViewport: Viewport | null = null
     for (const subscriptionKey of subscriptionKeys) {
       if (this.owners.get(ptyId) === subscriptionKey) {
-        removedOwnerClientId = viewers.get(subscriptionKey)?.clientId ?? null
+        const owner = viewers.get(subscriptionKey)
+        removedOwnerClientId = owner?.clientId ?? null
+        removedOwnerViewport = owner ? { cols: owner.cols, rows: owner.rows } : null
       }
       changed = viewers.delete(subscriptionKey) || changed
     }
@@ -244,10 +247,10 @@ export class RemoteDesktopTerminalFloor {
     if (!this.owners.has(ptyId) && !this.dependencies.hostShowsTerminals()) {
       // Why: reclaiming would restore the spawn grid nobody sees, so the next reveal replays a
       // snapshot at a foreign grid and TUIs redraw twice (#15997). The orphan seat resumes it.
-      const parkedGrid = this.dependencies.getTerminalSize(ptyId)
-      if (parkedGrid) {
-        // A later restore (e.g. after a phone leaves) must return here, not to the spawn grid.
-        this.hostReclaimTargets.set(ptyId, parkedGrid)
+      if (removedOwnerViewport) {
+        // Why the viewer's grid, not the PTY's: a phone may be fitting the PTY, and its later
+        // restore must return to the parked desktop grid rather than the spawn or phone grid.
+        this.hostReclaimTargets.set(ptyId, removedOwnerViewport)
       }
       return Promise.resolve(true)
     }

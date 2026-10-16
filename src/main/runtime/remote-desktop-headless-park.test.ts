@@ -74,6 +74,19 @@ describe('remote desktop viewers on a parked terminal', () => {
     expect(size()).toEqual({ cols: 99, rows: 67 })
   })
 
+  it('restores the parked desktop grid when the park happened while a phone was fitting', async () => {
+    const { runtime, size } = createRuntime({ headless: true })
+    await runtime.updateRemoteDesktopViewer(PTY, 'multiplex:a:1', 'laptop', 99, 67)
+    await runtime.handleMobileSubscribe(PTY, 'phone', { cols: 45, rows: 20 })
+    await runtime.unregisterRemoteDesktopViewer(PTY, 'multiplex:a:1')
+
+    runtime.handleMobileUnsubscribe(PTY, 'phone')
+    await vi.advanceTimersByTimeAsync(10_000)
+
+    expect(runtime.getDriver(PTY).kind).not.toBe('mobile')
+    expect(size()).toEqual({ cols: 99, rows: 67 })
+  })
+
   it('lets a different desktop viewer that claims after the park take the grid', async () => {
     const { runtime, size } = createRuntime({ headless: true })
     await runtime.updateRemoteDesktopViewer(PTY, 'multiplex:a:1', 'laptop', 99, 67)
