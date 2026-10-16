@@ -13,6 +13,7 @@ import {
 } from '../../../shared/desktop-browser-bridge-protocol'
 import type { RpcResponse } from '../../runtime/rpc/core'
 import { runInRemoteCliBrowserScope } from '../../runtime/desktop-browser-bridge/remote-cli-browser-scope'
+import { parseCdpKeyEvent } from '../cdp-keyboard-us-layout'
 
 export type DesktopBrowserBridgeOutcome =
   | { ok: true; result: unknown }
@@ -189,12 +190,23 @@ function isWebNavigationUrl(value: unknown, optional: boolean): boolean {
   }
 }
 
-const PASTE_MODIFIERS = new Set(['control', 'ctrl', 'meta', 'cmd', 'command', 'super'])
+const CTRL_OR_META = 2 | 4
+const SHIFT = 8
+const PASTE_MODIFIER_NAMES = new Set(['control', 'ctrl', 'meta', 'cmd', 'command', 'super', 'win'])
 
+// Why the input parser first: the key must be judged as the event the page receives, aliases and all.
 function isPasteChord(value: unknown): boolean {
   if (typeof value !== 'string') {
     return false
   }
+  const event = parseCdpKeyEvent(value)
+  if (event) {
+    return (
+      (event.code === 'KeyV' && (event.modifiers & CTRL_OR_META) !== 0) ||
+      (event.code === 'Insert' && (event.modifiers & SHIFT) !== 0)
+    )
+  }
+  // A spelling the parser cannot express falls back to the raw driver, so refuse it by name too.
   const parts = value
     .toLowerCase()
     .split('+')
@@ -202,8 +214,8 @@ function isPasteChord(value: unknown): boolean {
   const key = parts.at(-1)
   const modifiers = parts.slice(0, -1)
   return (
-    (key === 'v' && modifiers.some((modifier) => PASTE_MODIFIERS.has(modifier))) ||
-    (key === 'insert' && modifiers.includes('shift'))
+    (key === 'v' && modifiers.some((modifier) => PASTE_MODIFIER_NAMES.has(modifier))) ||
+    ((key === 'insert' || key === 'ins') && modifiers.includes('shift'))
   )
 }
 

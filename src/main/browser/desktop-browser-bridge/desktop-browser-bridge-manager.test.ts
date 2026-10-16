@@ -214,4 +214,26 @@ describe('DesktopBrowserBridgeManager', () => {
     expect(h.subscriptions[0]!.close).toHaveBeenCalled()
     await vi.waitFor(() => expect(h.subscriptions).toHaveLength(2))
   })
+
+  it('accepts a request for a workspace whose id embeds a long path', async () => {
+    const h = harness()
+    h.manager.reconcile()
+    await vi.waitFor(() => expect(h.subscriptions).toHaveLength(1))
+    const socket = h.subscriptions[0]!
+    socket.callbacks.onResponse(event({ type: 'ready', attachmentId: 'att-1' }))
+    const workspaceId = `repo-1::/${'deep/'.repeat(200)}app`
+
+    socket.callbacks.onResponse(
+      event({
+        type: 'request',
+        requestId: 'long',
+        method: 'browser.tabList',
+        workspaceId,
+        params: { worktree: `id:${workspaceId}` }
+      })
+    )
+
+    await vi.waitFor(() => expect(h.execute).toHaveBeenCalled())
+    expect(socket.close).not.toHaveBeenCalled()
+  })
 })

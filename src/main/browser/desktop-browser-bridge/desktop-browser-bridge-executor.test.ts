@@ -369,27 +369,34 @@ describe('executeDesktopBrowserBridgeRequest', () => {
     expect(dispatched).toHaveLength(3)
   })
 
-  it.each(['Control+v', 'Meta+V', 'cmd + v', 'Shift+Insert', 'Control+Shift+V'])(
-    'refuses the paste chord %s',
-    async (key) => {
-      const { value, dispatched } = deps()
+  it.each([
+    'Control+v',
+    'Meta+V',
+    'cmd + v',
+    'Win+v',
+    'Super+v',
+    'Shift+Insert',
+    'Shift+Ins',
+    'Control+Shift+V',
+    'Alt+Meta+v'
+  ])('refuses the paste chord %s', async (key) => {
+    const { value, dispatched } = deps()
 
-      const outcome = await executeDesktopBrowserBridgeRequest(
-        request({
-          method: 'browser.keypress',
-          workspaceId: HOST_WORKSPACE,
-          params: { key, worktree: `id:${HOST_WORKSPACE}` }
-        }),
-        value
-      )
+    const outcome = await executeDesktopBrowserBridgeRequest(
+      request({
+        method: 'browser.keypress',
+        workspaceId: HOST_WORKSPACE,
+        params: { key, worktree: `id:${HOST_WORKSPACE}` }
+      }),
+      value
+    )
 
-      expect(outcome).toMatchObject({
-        ok: false,
-        error: { code: 'desktop_browser_bridge_not_forwarded' }
-      })
-      expect(dispatched).toEqual([])
-    }
-  )
+    expect(outcome).toMatchObject({
+      ok: false,
+      error: { code: 'desktop_browser_bridge_not_forwarded' }
+    })
+    expect(dispatched).toEqual([])
+  })
 
   it('lets ordinary keys through', async () => {
     const { value, dispatched } = deps()

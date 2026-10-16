@@ -88,6 +88,7 @@ export function isDesktopBrowserBridgeMethod(method: string): boolean {
 
 const Identity = z.string().min(1).max(256)
 const MAX_FORWARDED_PARAMS_BYTES = 1024 * 1024
+const MAX_WORKSPACE_ID_LENGTH = 16 * 1024
 
 export const DesktopBrowserBridgeAttachParams = z.object({
   bridgeClientId: Identity
@@ -98,7 +99,8 @@ export const DesktopBrowserBridgeRequest = z.object({
   requestId: Identity,
   method: z.string().refine(isDesktopBrowserBridgeMethod, 'method is not forwarded'),
   /** The workspace orcad resolved the caller's selector to; absent when it named none. */
-  workspaceId: Identity.optional(),
+  // Why longer than an identity: a worktree id embeds the repository's absolute path.
+  workspaceId: z.string().min(1).max(MAX_WORKSPACE_ID_LENGTH).optional(),
   params: z
     .record(z.string(), z.unknown())
     .refine(
