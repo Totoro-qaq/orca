@@ -89,6 +89,19 @@ describe('pty hidden delivery gate', () => {
     expect(unmarkHiddenRendererPty(PTY_ID).droppedWhileHidden).toBe(false)
   })
 
+  it('tags every marker of one drop episode with the same episode id', () => {
+    markHiddenRendererPty(PTY_ID)
+    const first = recordHiddenRendererPtyDataDrop(PTY_ID, 10).hiddenDropEpisode
+    expect(recordHiddenRendererPtyDataDrop(PTY_ID, 10).hiddenDropEpisode).toBe(first)
+    expect(unmarkHiddenRendererPty(PTY_ID).hiddenDropEpisode).toBe(first)
+    expect(unmarkHiddenRendererPty(PTY_ID).hiddenDropEpisode).toBe(first)
+
+    markHiddenRendererPty(PTY_ID)
+    const second = recordHiddenRendererPtyDataDrop(PTY_ID, 10).hiddenDropEpisode
+    expect(second).not.toBe(first)
+    expect(unmarkHiddenRendererPty(PTY_ID).hiddenDropEpisode).toBe(second)
+  })
+
   it('retires drop memory on teardown', () => {
     markHiddenRendererPty(PTY_ID)
     recordHiddenRendererPtyDataDrop(PTY_ID, 10)

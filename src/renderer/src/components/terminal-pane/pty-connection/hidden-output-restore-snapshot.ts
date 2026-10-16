@@ -51,12 +51,10 @@ export function bindHiddenOutputRestoreSnapshot(session: ConnectPanePtySession):
       beforeWrite: session.beforeTerminalOutputWrite
     })
     const ptyId = session.transport.getPtyId()
-    if (ptyId !== null) {
-      // The banner covers every drop main has reported so far; repeat markers for it are ignored.
-      session.hiddenOutputRestoreDisclosedGap = {
-        ptyId,
-        seq: session.hiddenOutputRestoreMarkerSeqHighWater
-      }
+    const episode = session.hiddenOutputRestoreLatestDropEpisode
+    if (ptyId !== null && episode !== null) {
+      // Repeat markers for the drop episode this banner disclosed are ignored.
+      session.hiddenOutputRestoreDisclosedGap = { ptyId, episode }
     }
   }
 

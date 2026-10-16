@@ -144,6 +144,7 @@ describe('registerPtyHandlers hidden-output restore ack', () => {
       expect(restoreMarkers()).toBe(3)
       expect(mainWindow.webContents.send).toHaveBeenLastCalledWith('pty:modelRestoreNeeded', {
         id,
+        hiddenDropEpisode: expect.any(Number),
         reason: 'unhide',
         markerSeq: 42
       })
@@ -241,6 +242,7 @@ describe('registerPtyHandlers hidden-output restore ack', () => {
       setHidden(null, { id: result.id, hidden: false })
       expect(mainWindow.webContents.send).toHaveBeenLastCalledWith('pty:modelRestoreNeeded', {
         id: result.id,
+        hiddenDropEpisode: expect.any(Number),
         reason: 'unhide',
         markerSeq: 42
       })

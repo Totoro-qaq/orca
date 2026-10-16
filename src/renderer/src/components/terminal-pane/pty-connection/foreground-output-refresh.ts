@@ -56,26 +56,20 @@ export function bindForegroundOutputRefresh(session: ConnectPanePtySession): voi
     if (session.disposed) {
       return
     }
-    const markerSeq = typeof event.markerSeq === 'number' ? event.markerSeq : null
-    if (markerSeq !== null) {
-      session.hiddenOutputRestoreMarkerSeqHighWater = Math.max(
-        session.hiddenOutputRestoreMarkerSeqHighWater ?? markerSeq,
-        markerSeq
-      )
-    }
+    const episode = typeof event.hiddenDropEpisode === 'number' ? event.hiddenDropEpisode : null
     // Why: main's latch stays armed until a restore paints, so a gap it can never serve re-marks
-    // on every unhide. Repeats at or below the disclosed seq are that same gap; a higher or
-    // seq-less marker may be new loss and proceeds, failing toward recovery.
+    // on every unhide. A repeat of the disclosed episode is that same gap; any other marker may
+    // be new loss and proceeds, failing toward recovery.
     const disclosed = session.hiddenOutputRestoreDisclosedGap
     if (
+      episode !== null &&
       disclosed !== null &&
       disclosed.ptyId === session.transport.getPtyId() &&
-      disclosed.seq !== null &&
-      markerSeq !== null &&
-      markerSeq <= disclosed.seq
+      disclosed.episode === episode
     ) {
       return
     }
+    session.hiddenOutputRestoreLatestDropEpisode = episode
     recordTerminalFreezeBreadcrumb('restore-marker', {
       id: redactPtyIdForDiagnostics(session.transport.getPtyId() ?? '')
     })
@@ -112,7 +106,7 @@ export function bindForegroundOutputRefresh(session: ConnectPanePtySession): voi
     session.unregisterModelRestoreNeeded?.()
     session.unregisterModelRestoreNeeded = null
     // Marker bookkeeping is per PTY stream, like the restore state itself.
-    session.hiddenOutputRestoreMarkerSeqHighWater = null
+    session.hiddenOutputRestoreLatestDropEpisode = null
     session.hiddenOutputRestoreDisclosedGap = null
     session.modelRestoreSubscribedPtyId = ptyId
     // Why: markers exist only for PTYs whose bytes transit local main;

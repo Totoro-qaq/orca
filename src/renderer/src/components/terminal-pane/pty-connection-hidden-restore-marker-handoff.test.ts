@@ -192,11 +192,14 @@ async function wireMainGateToRendererChannel(): Promise<{
         return
       }
       markersDelivered += 1
+      // Emit-time seq advances with visible output between reveals; the episode does not.
+      const markerSeq = 4096 + markersDelivered
       queueMicrotask(() => {
         _dispatchPtyModelRestoreNeededForTest({
           id,
           reason: 'unhide',
-          markerSeq: 4096
+          markerSeq,
+          hiddenDropEpisode: 1
         })
       })
     }
@@ -215,7 +218,8 @@ async function dropHiddenBytesInMain(): Promise<void> {
     _dispatchPtyModelRestoreNeededForTest({
       id: PTY_ID,
       reason: 'hidden-drop',
-      markerSeq: 2048
+      markerSeq: 2048,
+      hiddenDropEpisode: 1
     })
   }
   await flushAsyncTicks(6)
@@ -460,6 +464,8 @@ describe('hidden-output restore marker handoff (STA-4869 R6)', () => {
         .length
 
       for (let cycle = 0; cycle < 4; cycle += 1) {
+        // Ordinary visible output between reveals is not a new hidden drop.
+        drive.deliver(`visible-${cycle}\r\n`, 8192 + cycle)
         drive.setVisible(false)
         drive.binding.syncProcessTracking()
         await vi.advanceTimersByTimeAsync(1_000)

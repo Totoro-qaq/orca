@@ -29,7 +29,11 @@ const deliveryInterestRendererPtys = new Set<string>()
 // 'awaiting-paint' = an unhide re-emitted the marker; a drop after that starts a
 // new episode the in-flight restore's snapshot may predate, so its ack must not
 // retire it.
-const droppedSinceHiddenPtys = new Map<string, 'unrevealed' | 'awaiting-paint'>()
+const droppedSinceHiddenPtys = new Map<
+  string,
+  { state: 'unrevealed' | 'awaiting-paint'; episode: number }
+>()
+let nextHiddenDropEpisode = 1
 // Why: a runtime background spawn has no renderer party to re-mark it after a
 // reload/crash, so its hidden mark must outlive renderer-scoped resets until a
 // renderer unmarks it (visible mount) or the PTY is torn down.
@@ -60,20 +64,24 @@ export function markHiddenRendererPty(id: string): void {
 /** Clears the hidden bit. Returns whether bytes were dropped while hidden so
  *  the caller can emit a restore marker. Reads the latch without spending it:
  *  the marker may reach no handler (see droppedSinceHiddenPtys). */
-export function unmarkHiddenRendererPty(id: string): { droppedWhileHidden: boolean } {
+export function unmarkHiddenRendererPty(id: string): {
+  droppedWhileHidden: boolean
+  hiddenDropEpisode?: number
+} {
   hiddenRendererPtys.delete(id)
   runtimeOwnedHiddenRendererPtys.delete(id)
-  const droppedWhileHidden = droppedSinceHiddenPtys.has(id)
-  if (droppedWhileHidden) {
-    droppedSinceHiddenPtys.set(id, 'awaiting-paint')
+  const latch = droppedSinceHiddenPtys.get(id)
+  if (!latch) {
+    return { droppedWhileHidden: false }
   }
-  return { droppedWhileHidden }
+  latch.state = 'awaiting-paint'
+  return { droppedWhileHidden: true, hiddenDropEpisode: latch.episode }
 }
 
 /** Retires drop memory once the renderer reports the restore snapshot painted,
  *  unless bytes were dropped again since the last unhide. */
 export function consumeHiddenRendererPtyDropMemory(id: string): void {
-  if (droppedSinceHiddenPtys.get(id) === 'awaiting-paint') {
+  if (droppedSinceHiddenPtys.get(id)?.state === 'awaiting-paint') {
     droppedSinceHiddenPtys.delete(id)
   }
 }
@@ -123,14 +131,16 @@ export function shouldDropHiddenRendererPtyData(
 export function recordHiddenRendererPtyDataDrop(
   id: string,
   chars: number
-): { shouldEmitRestoreMarker: boolean } {
+): { shouldEmitRestoreMarker: boolean; hiddenDropEpisode: number } {
   droppedHiddenDeliveryChars += chars
   droppedHiddenDeliveryChunks += 1
-  if (droppedSinceHiddenPtys.get(id) === 'unrevealed') {
-    return { shouldEmitRestoreMarker: false }
+  const latch = droppedSinceHiddenPtys.get(id)
+  if (latch?.state === 'unrevealed') {
+    return { shouldEmitRestoreMarker: false, hiddenDropEpisode: latch.episode }
   }
-  droppedSinceHiddenPtys.set(id, 'unrevealed')
-  return { shouldEmitRestoreMarker: true }
+  const episode = nextHiddenDropEpisode++
+  droppedSinceHiddenPtys.set(id, { state: 'unrevealed', episode })
+  return { shouldEmitRestoreMarker: true, hiddenDropEpisode: episode }
 }
 
 /** Renderer process replaced (reload / crash): its ref-counted interest
