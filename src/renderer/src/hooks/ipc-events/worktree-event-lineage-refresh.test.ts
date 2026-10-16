@@ -313,15 +313,26 @@ describe('order-only refresh with actual store actions', () => {
       repoId: 'repo',
       executionHostId: 'runtime:env-1',
       sortOrderOnly: true,
-      sortOrders: [
-        { worktreeId: h.worktree.id, sortOrder: 99 },
-        { worktreeId: 'repo::/remote/unknown', sortOrder: 98 }
-      ]
+      sortOrders: [{ worktreeId: h.worktree.id, sortOrder: 99 }]
     })
     await flushPromises()
     expect(store.getState().worktreesByRepo.repo[0].sortOrder).toBe(99)
     expect(store.getState().sortEpoch).toBe(beforeEpoch)
     expect(runtimeEnvironmentCall.mock.calls.length).toBe(readsBefore)
+  })
+
+  it('refetches when a published row was never loaded here', async () => {
+    const h = createActualActionFixture()
+    await h.warm()
+    store.setState({ worktreesByRepo: {} })
+    h.setOrder(42)
+    h.queue.enqueue({
+      repoId: 'repo',
+      executionHostId: 'runtime:env-1',
+      sortOrderOnly: true,
+      sortOrders: [{ worktreeId: h.worktree.id, sortOrder: 99 }]
+    })
+    await vi.waitFor(() => expect(store.getState().worktreesByRepo.repo?.[0]?.sortOrder).toBe(42))
   })
 
   it('still retries lineage on a published save when the host snapshot is not fresh', async () => {

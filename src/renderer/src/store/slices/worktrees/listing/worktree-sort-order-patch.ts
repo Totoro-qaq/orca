@@ -36,6 +36,22 @@ export function patchWorktreeSortOrders(
   return changed ? { worktreesByRepo: { ...state.worktreesByRepo, [repoId]: next } } : state
 }
 
+/** False when a published row is missing here, so the listing needs a refetch rather than a patch. */
+export function hasHostRowsForSortOrders(
+  state: AppState,
+  repoId: string,
+  hostId: ExecutionHostId,
+  sortOrders: readonly WorktreeSortOrderUpdate[]
+): boolean {
+  const matchOptions = worktreeHostMatchOptions(state, repoId, hostId)
+  const ids = new Set(
+    (state.worktreesByRepo[repoId] ?? [])
+      .filter((worktree) => worktreeMatchesHost(worktree, hostId, matchOptions))
+      .map((worktree) => worktree.id)
+  )
+  return sortOrders.every((entry) => ids.has(entry.worktreeId))
+}
+
 /** Valid published order entries, or null when an older or malformed host sent none. */
 export function readPublishedSortOrders(value: unknown): WorktreeSortOrderUpdate[] | null {
   if (!Array.isArray(value)) {

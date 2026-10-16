@@ -7,7 +7,10 @@ import {
 import type { RuntimeClientEvent } from '../../../../shared/runtime-client-events'
 import type { AppState } from '../../store/types'
 import type { WorktreeSortOrderUpdate } from '../../../../shared/worktree/sort-order-update'
-import { patchWorktreeSortOrders } from '../../store/slices/worktrees/listing/worktree-sort-order-patch'
+import {
+  hasHostRowsForSortOrders,
+  patchWorktreeSortOrders
+} from '../../store/slices/worktrees/listing/worktree-sort-order-patch'
 import { buildRuntimeClientEventEnvironmentKey } from './runtime-environment-subscription-selection'
 import { useAppStore } from '../../store'
 import {
@@ -74,7 +77,13 @@ export function createWorktreeEventRuntime(
       sortOrderOwner?.kind === 'runtime' &&
       options.sortOrderFence === runtimeSortOrderFence(sortOrderOwner.environmentId) &&
       !renamed &&
-      !options.forceLocalOwner
+      !options.forceLocalOwner &&
+      hasHostRowsForSortOrders(
+        useAppStore.getState(),
+        repoId,
+        options.executionHostId,
+        options.sortOrders
+      )
     ) {
       // Why: the host published the saved values, so refetching the repo would only re-download them (#27268).
       const { executionHostId, sortOrders } = options
