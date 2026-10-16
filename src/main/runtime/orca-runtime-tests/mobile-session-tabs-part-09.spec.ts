@@ -408,6 +408,19 @@ describe('OrcaRuntimeService', () => {
       expect(firstSpawnArgs(spawn).command ?? '').not.toContain('/t/a.jsonl')
     })
 
+    it('does not resume an originless legacy record, and keeps it', async () => {
+      const { runtimeStore, getSession } = makeParkedSessionStore(undefined)
+      const { runtime, spawn } = makeParkedRuntime(runtimeStore)
+
+      await automaticActivate(runtime)
+      await userActivate(runtime)
+
+      expect(firstSpawnArgs(spawn).command ?? '').not.toContain('provider-session-1')
+      expect(
+        getSession().sleepingAgentSessionsByPaneKey?.[`host-tab:${HEADLESS_LEAF_ID}`]
+      ).toBeDefined()
+    })
+
     // Why: a session id names a transcript on the machine that captured it.
     it('does not resume a record captured on another execution host', async () => {
       const { runtimeStore } = makeParkedSessionStore('worktree-sleep', {
