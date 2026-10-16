@@ -107,6 +107,23 @@ describe('registerPtyHandlers hidden-output restore ack', () => {
     return result.id
   }
 
+  /** The drop episode main put on its most recent restore marker. */
+  function lastMarkerEpisode(): number {
+    const markers = mainWindow.webContents.send.mock.calls.filter(
+      (call: unknown[]) => call[0] === 'pty:modelRestoreNeeded'
+    )
+    const payload: unknown = markers.at(-1)?.[1]
+    if (
+      !payload ||
+      typeof payload !== 'object' ||
+      !('hiddenDropEpisode' in payload) ||
+      typeof payload.hiddenDropEpisode !== 'number'
+    ) {
+      throw new Error('no restore marker carried a drop episode')
+    }
+    return payload.hiddenDropEpisode
+  }
+
   /** One gated drop episode on a fresh daemon PTY, with the marker count reset. */
   async function armDropLatch(): Promise<{
     id: string
@@ -156,7 +173,7 @@ describe('registerPtyHandlers hidden-output restore ack', () => {
       expect(restoreMarkers()).toBe(4)
 
       // The ack says the bytes are on screen: no marker storm afterwards.
-      ackApplied(null, { id })
+      ackApplied(null, { id, hiddenDropEpisode: lastMarkerEpisode() })
       setHidden(null, { id, hidden: false })
       setHidden(null, { id, hidden: false })
       expect(restoreMarkers()).toBe(4)
@@ -178,7 +195,7 @@ describe('registerPtyHandlers hidden-output restore ack', () => {
       daemon.emitData(result.id, 'hidden output')
       vi.advanceTimersByTime(50)
       setHidden(null, { id: result.id, hidden: false })
-      ackApplied(null, { id: result.id })
+      ackApplied(null, { id: result.id, hiddenDropEpisode: lastMarkerEpisode() })
 
       setHidden(null, { id: result.id, hidden: true })
       daemon.emitData(result.id, 'hidden again')
@@ -209,10 +226,17 @@ describe('registerPtyHandlers hidden-output restore ack', () => {
       setHidden(null, { id, hidden: false })
       expect(restoreMarkers()).toBe(2)
 
+      // An ack naming no episode, or a stale one, cannot prove it covered this gap.
       ackApplied(null, { id })
-      ackApplied(null, { id })
+      ackApplied(null, { id, hiddenDropEpisode: lastMarkerEpisode() - 1 })
       setHidden(null, { id, hidden: false })
-      expect(restoreMarkers()).toBe(2)
+      expect(restoreMarkers()).toBe(3)
+
+      const episode = lastMarkerEpisode()
+      ackApplied(null, { id, hiddenDropEpisode: episode })
+      ackApplied(null, { id, hiddenDropEpisode: episode })
+      setHidden(null, { id, hidden: false })
+      expect(restoreMarkers()).toBe(3)
     } finally {
       vi.useRealTimers()
     }

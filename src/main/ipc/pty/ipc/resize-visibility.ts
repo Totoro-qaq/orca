@@ -82,12 +82,17 @@ export function installPtyResizeVisibilityIpc(session: PtyIpcSession): void {
   // Why the ack and not the serve: the pane can dispose across the serialize + IPC round trip,
   // so the drop latch stays armed until the restored bytes are actually painted (#15504).
   ipcMain.removeAllListeners('pty:hiddenOutputRestoreApplied')
-  ipcMain.on('pty:hiddenOutputRestoreApplied', (_event, args: { id?: unknown }) => {
-    if (typeof args?.id !== 'string' || !args.id) {
-      return
+  ipcMain.on(
+    'pty:hiddenOutputRestoreApplied',
+    (_event, args: { id?: unknown; hiddenDropEpisode?: unknown }) => {
+      if (typeof args?.id !== 'string' || !args.id) {
+        return
+      }
+      const episode =
+        typeof args.hiddenDropEpisode === 'number' ? args.hiddenDropEpisode : undefined
+      consumeHiddenRendererPtyDropMemory(args.id, episode)
     }
-    consumeHiddenRendererPtyDropMemory(args.id)
-  })
+  )
 
   // Why: renderer ACKs bound main→renderer delivery without stopping PTY ingestion — agent/status consumers still see every chunk via the provider/runtime path.
   ipcMain.removeAllListeners('pty:ackData')

@@ -131,6 +131,8 @@ export function bindHiddenOutputRestoreRequest(session: ConnectPanePtySession): 
           return
         }
         const restoreGeneration = session.hiddenOutputRestoreGeneration
+        // Captured before the fetch: the snapshot can only cover drops main reported by now.
+        const coveredDropEpisode: number | null = session.hiddenOutputRestoreLatestDropEpisode
         session.hiddenOutputRestoreNeeded = false
         let snapshotResult: HiddenOutputSnapshotResult
         try {
@@ -223,7 +225,7 @@ export function bindHiddenOutputRestoreRequest(session: ConnectPanePtySession): 
           snapshot,
           restoredSnapshotPaintsPrintableContent(snapshot)
         )
-        session.ackHiddenOutputRestoreApplied(currentPtyId)
+        session.ackHiddenOutputRestoreApplied(currentPtyId, coveredDropEpisode)
         session.hiddenOutputRestoreReplayingSnapshot = null
         const needsFreshSnapshot = session.hiddenOutputRestoreFreshSnapshotNeeded
         session.hiddenOutputRestoreFreshSnapshotNeeded = false

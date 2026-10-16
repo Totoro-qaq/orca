@@ -78,10 +78,12 @@ export function unmarkHiddenRendererPty(id: string): {
   return { droppedWhileHidden: true, hiddenDropEpisode: latch.episode }
 }
 
-/** Retires drop memory once the renderer reports the restore snapshot painted,
- *  unless bytes were dropped again since the last unhide. */
-export function consumeHiddenRendererPtyDropMemory(id: string): void {
-  if (droppedSinceHiddenPtys.get(id)?.state === 'awaiting-paint') {
+/** Retires drop memory once the renderer reports painting a restore requested
+ *  for this episode. An older restore's ack must not retire a newer episode,
+ *  and an ack naming no episode retires nothing (fails toward recovery). */
+export function consumeHiddenRendererPtyDropMemory(id: string, hiddenDropEpisode?: number): void {
+  const latch = droppedSinceHiddenPtys.get(id)
+  if (latch?.state === 'awaiting-paint' && latch.episode === hiddenDropEpisode) {
     droppedSinceHiddenPtys.delete(id)
   }
 }

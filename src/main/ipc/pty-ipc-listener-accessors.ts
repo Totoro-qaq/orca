@@ -115,7 +115,7 @@ export function createPtyIpcListenerAccessors(ctx: {
 
   function getPtyHiddenOutputRestoreAppliedListener(): (
     event: unknown,
-    args: { id?: unknown }
+    args: { id?: unknown; hiddenDropEpisode?: unknown }
   ) => void {
     const appliedCall = onMock.mock.calls.find(
       (call: unknown[]) => call[0] === 'pty:hiddenOutputRestoreApplied'
@@ -124,7 +124,10 @@ export function createPtyIpcListenerAccessors(ctx: {
       throw new Error('missing pty:hiddenOutputRestoreApplied listener')
     }
     // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: found by channel name, so this is the listener resize-visibility.ts registered with this signature.
-    return appliedCall[1] as (event: unknown, args: { id?: unknown }) => void
+    return appliedCall[1] as (
+      event: unknown,
+      args: { id?: unknown; hiddenDropEpisode?: unknown }
+    ) => void
   }
 
   function getPtySetDeliveryInterestListener(): (

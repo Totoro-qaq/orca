@@ -45,47 +45,56 @@ describe('pty hidden delivery gate', () => {
 
   it('requests the restore marker exactly once per drop episode, re-armed by the applied ack', () => {
     markHiddenRendererPty(PTY_ID)
-    expect(recordHiddenRendererPtyDataDrop(PTY_ID, 10).shouldEmitRestoreMarker).toBe(true)
+    const drop = recordHiddenRendererPtyDataDrop(PTY_ID, 10)
+    expect(drop.shouldEmitRestoreMarker).toBe(true)
     expect(recordHiddenRendererPtyDataDrop(PTY_ID, 10).shouldEmitRestoreMarker).toBe(false)
 
     // An ack before any reveal belongs to an earlier restore and retires nothing.
-    consumeHiddenRendererPtyDropMemory(PTY_ID)
+    consumeHiddenRendererPtyDropMemory(PTY_ID, drop.hiddenDropEpisode)
     expect(recordHiddenRendererPtyDataDrop(PTY_ID, 10).shouldEmitRestoreMarker).toBe(false)
 
     // The reveal painted the snapshot: the next episode reports again.
     unmarkHiddenRendererPty(PTY_ID)
-    consumeHiddenRendererPtyDropMemory(PTY_ID)
+    consumeHiddenRendererPtyDropMemory(PTY_ID, drop.hiddenDropEpisode)
     markHiddenRendererPty(PTY_ID)
     expect(recordHiddenRendererPtyDataDrop(PTY_ID, 10).shouldEmitRestoreMarker).toBe(true)
   })
 
   it('keeps drop memory across unhide until the renderer acks the paint (STA-4869)', () => {
     markHiddenRendererPty(PTY_ID)
-    recordHiddenRendererPtyDataDrop(PTY_ID, 10)
+    const { hiddenDropEpisode } = recordHiddenRendererPtyDataDrop(PTY_ID, 10)
 
     // A pane retiring while hidden unhides after unregistering its marker
     // handler; every later unhide must still be able to re-emit.
     expect(unmarkHiddenRendererPty(PTY_ID).droppedWhileHidden).toBe(true)
     expect(unmarkHiddenRendererPty(PTY_ID).droppedWhileHidden).toBe(true)
 
+    // An ack that names no episode cannot prove what it covered.
     consumeHiddenRendererPtyDropMemory(PTY_ID)
+    expect(unmarkHiddenRendererPty(PTY_ID).droppedWhileHidden).toBe(true)
+
+    consumeHiddenRendererPtyDropMemory(PTY_ID, hiddenDropEpisode)
     expect(unmarkHiddenRendererPty(PTY_ID).droppedWhileHidden).toBe(false)
   })
 
   it('a drop after the reveal survives the in-flight restore ack and re-emits its marker', () => {
     markHiddenRendererPty(PTY_ID)
-    recordHiddenRendererPtyDataDrop(PTY_ID, 10)
+    const first = recordHiddenRendererPtyDataDrop(PTY_ID, 10).hiddenDropEpisode
     expect(unmarkHiddenRendererPty(PTY_ID).droppedWhileHidden).toBe(true)
 
     // The user switches away again before the reveal's snapshot is painted.
     markHiddenRendererPty(PTY_ID)
-    expect(recordHiddenRendererPtyDataDrop(PTY_ID, 10).shouldEmitRestoreMarker).toBe(true)
+    const second = recordHiddenRendererPtyDataDrop(PTY_ID, 10)
+    expect(second.shouldEmitRestoreMarker).toBe(true)
     expect(recordHiddenRendererPtyDataDrop(PTY_ID, 10).shouldEmitRestoreMarker).toBe(false)
     // That snapshot may predate the new drop, so its ack must not retire the latch.
-    consumeHiddenRendererPtyDropMemory(PTY_ID)
+    consumeHiddenRendererPtyDropMemory(PTY_ID, first)
+    expect(unmarkHiddenRendererPty(PTY_ID).droppedWhileHidden).toBe(true)
+    // Nor after the second reveal: the older restore still covers only episode one.
+    consumeHiddenRendererPtyDropMemory(PTY_ID, first)
     expect(unmarkHiddenRendererPty(PTY_ID).droppedWhileHidden).toBe(true)
 
-    consumeHiddenRendererPtyDropMemory(PTY_ID)
+    consumeHiddenRendererPtyDropMemory(PTY_ID, second.hiddenDropEpisode)
     expect(unmarkHiddenRendererPty(PTY_ID).droppedWhileHidden).toBe(false)
   })
 
@@ -115,7 +124,7 @@ describe('pty hidden delivery gate', () => {
     markHiddenRendererPty(PTY_ID)
     recordHiddenRendererPtyDataDrop(PTY_ID, 10)
 
-    consumeHiddenRendererPtyDropMemory('pty-2')
+    consumeHiddenRendererPtyDropMemory('pty-2', 1)
     expect(unmarkHiddenRendererPty(PTY_ID).droppedWhileHidden).toBe(true)
   })
 

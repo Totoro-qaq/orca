@@ -382,7 +382,7 @@ describe('hidden-output restore marker handoff (STA-4869 R6)', () => {
     // The latch outlived the marker nobody received, so the remount's own unhide
     // re-emits it; the paint that heals the gap is what finally spends it.
     expect(gate.markersDelivered()).toBe(2)
-    expect(window.api.pty.ackHiddenOutputRestoreApplied).toHaveBeenCalledWith(PTY_ID)
+    expect(window.api.pty.ackHiddenOutputRestoreApplied).toHaveBeenCalledWith(PTY_ID, 1)
     expect(observeDisclosure(replacement)).toMatchObject({ markerWrites: 1 })
     expect(mainDropLatch.dropped).toBe(false)
 
@@ -397,6 +397,41 @@ describe('hidden-output restore marker handoff (STA-4869 R6)', () => {
     expect(gate.markersDelivered()).toBe(2)
     expect(vi.mocked(window.api.pty.getMainBufferSnapshot).mock.calls.length).toBe(snapshotRequests)
     replacement.binding.dispose()
+  })
+
+  it('[fix] acks only the drop episode its snapshot was requested for', async () => {
+    const snapshot = { data: `${R6_MARKER}\r\n`, cols: 120, rows: 40, seq: 4096 }
+    const served = createDeferred<typeof snapshot | null>()
+    let servedCalls = 0
+    vi.mocked(window.api.pty.getMainBufferSnapshot).mockImplementation(async () => {
+      servedCalls += 1
+      return servedCalls === 1 ? await served.promise : snapshot
+    })
+    await wireMainGateToRendererChannel()
+    const drive = await connectPane(false)
+    drive.deliver(HIDDEN_CHUNK, HIDDEN_CHUNK.length)
+    await dropHiddenBytesInMain()
+    drive.setVisible(true)
+    drive.binding.syncProcessTracking()
+    await flushAsyncTicks(10)
+    expect(servedCalls).toBe(1)
+
+    // A newer episode is reported while the first snapshot is still in flight.
+    const { _dispatchPtyModelRestoreNeededForTest } = await import('./pty-model-restore-channel')
+    _dispatchPtyModelRestoreNeededForTest({
+      id: PTY_ID,
+      reason: 'hidden-drop',
+      markerSeq: 8192,
+      hiddenDropEpisode: 2
+    })
+    served.resolve(snapshot)
+    await flushAsyncTicks(30)
+
+    // The older snapshot may predate episode 2's bytes, so it can only retire episode 1.
+    const acks = vi.mocked(window.api.pty.ackHiddenOutputRestoreApplied).mock.calls
+    expect(acks[0]).toEqual([PTY_ID, 1])
+    expect(acks.slice(1).every(([, episode]) => episode === 2)).toBe(true)
+    drive.binding.dispose()
   })
 
   it('[fix] a snapshot served into a disposing pane leaves the latch armed for the remount', async () => {

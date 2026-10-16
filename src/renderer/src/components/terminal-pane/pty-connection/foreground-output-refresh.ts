@@ -69,7 +69,9 @@ export function bindForegroundOutputRefresh(session: ConnectPanePtySession): voi
     ) {
       return
     }
-    session.hiddenOutputRestoreLatestDropEpisode = episode
+    if (episode !== null) {
+      session.hiddenOutputRestoreLatestDropEpisode = episode
+    }
     recordTerminalFreezeBreadcrumb('restore-marker', {
       id: redactPtyIdForDiagnostics(session.transport.getPtyId() ?? '')
     })
