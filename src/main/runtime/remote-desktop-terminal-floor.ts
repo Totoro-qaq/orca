@@ -244,6 +244,11 @@ export class RemoteDesktopTerminalFloor {
     if (!this.owners.has(ptyId) && !this.dependencies.hostShowsTerminals()) {
       // Why: reclaiming would restore the spawn grid nobody sees, so the next reveal replays a
       // snapshot at a foreign grid and TUIs redraw twice (#15997). The orphan seat resumes it.
+      const parkedGrid = this.dependencies.getTerminalSize(ptyId)
+      if (parkedGrid) {
+        // A later restore (e.g. after a phone leaves) must return here, not to the spawn grid.
+        this.hostReclaimTargets.set(ptyId, parkedGrid)
+      }
       return Promise.resolve(true)
     }
     return this.applyLayout(ptyId)
