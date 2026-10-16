@@ -93,8 +93,10 @@ export async function executeDesktopBrowserBridgeRequest(
       )
     }
     deps.markWorkspaceDriven(workspaceId)
-    const response = await runInRemoteCliBrowserScope(workspaceId, () =>
-      deps.dispatch(request.method, params)
+    const response = await runInRemoteCliBrowserScope(
+      workspaceId,
+      () => deps.dispatch(request.method, params),
+      signal
     )
     if (!response.ok) {
       deps.audit({ ...audit, outcome: 'failed', code: response.error.code })

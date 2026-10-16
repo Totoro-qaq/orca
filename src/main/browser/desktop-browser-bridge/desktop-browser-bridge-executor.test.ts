@@ -3,7 +3,11 @@ import {
   DESKTOP_BROWSER_BRIDGE_METHODS,
   type DesktopBrowserBridgeRequest
 } from '../../../shared/desktop-browser-bridge-protocol'
-import { resolveRemoteCliBrowserScopeSelector } from '../../runtime/desktop-browser-bridge/remote-cli-browser-scope'
+import {
+  captureRemoteCliBrowserRevocation,
+  resolveRemoteCliBrowserScopeSelector,
+  runInRemoteCliBrowserScope
+} from '../../runtime/desktop-browser-bridge/remote-cli-browser-scope'
 import {
   executeDesktopBrowserBridgeRequest,
   type DesktopBrowserBridgeAuditEntry,
@@ -441,5 +445,25 @@ describe('executeDesktopBrowserBridgeRequest', () => {
 describe('resolveRemoteCliBrowserScopeSelector', () => {
   it('does nothing outside a bridged command', () => {
     expect(resolveRemoteCliBrowserScopeSelector(`id:${LOCAL_WORKSPACE}`)).toBeNull()
+  })
+})
+
+describe('captureRemoteCliBrowserRevocation', () => {
+  it('stops a command queued under a bridge that detached before it ran', async () => {
+    const revoked = new AbortController()
+    const assertNotRevoked = await runInRemoteCliBrowserScope(
+      HOST_WORKSPACE,
+      async () => captureRemoteCliBrowserRevocation(),
+      revoked.signal
+    )
+
+    expect(() => assertNotRevoked()).not.toThrow()
+    revoked.abort()
+    expect(() => assertNotRevoked()).toThrow('stopped sharing its browser')
+  })
+
+  it('never blocks a command that did not come from a host', () => {
+    const assertNotRevoked = captureRemoteCliBrowserRevocation()
+    expect(() => assertNotRevoked()).not.toThrow()
   })
 })

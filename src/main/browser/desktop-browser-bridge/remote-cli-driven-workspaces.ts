@@ -12,11 +12,19 @@ export function markRemoteCliDrivenWorkspace(workspaceId: string): void {
 }
 
 export function isRemoteCliDrivenGuest(webContentsId: number | undefined): boolean {
-  if (webContentsId === undefined || drivenWorkspaceIds.size === 0) {
+  if (drivenWorkspaceIds.size === 0) {
     return false
   }
-  const pageId = browserManager.getTabIdForWebContentsId(webContentsId)
-  const workspaceId = pageId ? browserManager.getWorktreeIdForTab(pageId) : undefined
+  // Why popup-aware: a popup a host-scripted page opened runs that host's code too.
+  const pageId =
+    webContentsId === undefined
+      ? null
+      : browserManager.getOwningTabIdForGuestWebContentsId(webContentsId)
+  // Why fail closed: once a host drives pages, a guest with no known owner could be one of its.
+  if (!pageId) {
+    return true
+  }
+  const workspaceId = browserManager.getWorktreeIdForTab(pageId)
   return workspaceId !== undefined && drivenWorkspaceIds.has(workspaceId)
 }
 

@@ -5,15 +5,35 @@
  */
 import { AsyncLocalStorage } from 'node:async_hooks'
 import { BrowserError } from '../../browser/browser-error'
-import { DESKTOP_BROWSER_BRIDGE_SCOPE_CODE } from '../../../shared/desktop-browser-bridge-protocol'
+import {
+  DESKTOP_BROWSER_BRIDGE_SCOPE_CODE,
+  DESKTOP_BROWSER_BRIDGE_UNAVAILABLE_CODE
+} from '../../../shared/desktop-browser-bridge-protocol'
 
-const scope = new AsyncLocalStorage<{ workspaceId: string }>()
+const scope = new AsyncLocalStorage<{ workspaceId: string; revoked?: AbortSignal }>()
 
 export function runInRemoteCliBrowserScope<T>(
   workspaceId: string,
-  run: () => Promise<T>
+  run: () => Promise<T>,
+  revoked?: AbortSignal
 ): Promise<T> {
-  return scope.run({ workspaceId }, run)
+  return scope.run({ workspaceId, ...(revoked ? { revoked } : {}) }, run)
+}
+
+/**
+ * Captured where a browser command is queued; the returned check throws once the bridge that
+ * issued it detached, so a command waiting behind another never runs after access was revoked.
+ */
+export function captureRemoteCliBrowserRevocation(): () => void {
+  const revoked = scope.getStore()?.revoked
+  return () => {
+    if (revoked?.aborted) {
+      throw new BrowserError(
+        DESKTOP_BROWSER_BRIDGE_UNAVAILABLE_CODE,
+        'The Orca desktop stopped sharing its browser before this command ran.'
+      )
+    }
+  }
 }
 
 /** Null outside a bridged command; inside one, the scoped workspace or a refusal. */
