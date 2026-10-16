@@ -18,8 +18,8 @@ function fixtureCommand(fixturePath: string, marker: string): string {
 
 export function createPairedTerminalParkingFixture(): {
   command: (marker: string) => string
-  /** PTY grid at the fixture's last unread SIZE command, read off disk so a parked pane needs no client. */
-  readReportedSize: (marker: string) => string | null
+  /** PTY grid the fixture saw at `SIZE:<token>`, read off disk so a parked pane needs no client. */
+  readReportedSize: (marker: string, token: string) => string | null
   dispose: () => void
 } {
   const scratch = mkdtempSync(path.join(os.tmpdir(), 'orca-paired-retention-memory-'))
@@ -68,8 +68,9 @@ export function createPairedTerminalParkingFixture(): {
       '      process.stdout.write(`FILLED:${marker}\\r\\n`)',
       '      continue',
       '    }',
-      "    if (command === 'SIZE') {",
-      '      writeFileSync(`${process.argv[1]}.${marker}.size`, `${process.stdout.columns}x${process.stdout.rows}`)',
+      "    if (command.startsWith('SIZE:')) {",
+      "      const token = command.slice('SIZE:'.length)",
+      '      writeFileSync(`${process.argv[1]}.${marker}.${token}.size`, `${process.stdout.columns}x${process.stdout.rows}`)',
       '      continue',
       '    }',
       '    process.stdout.write(`LIVE:${command}\\r\\n`)',
@@ -80,15 +81,9 @@ export function createPairedTerminalParkingFixture(): {
   )
   return {
     command: (marker) => fixtureCommand(fixturePath, marker),
-    readReportedSize: (marker) => {
-      const sizePath = `${fixturePath}.${marker}.size`
-      if (!existsSync(sizePath)) {
-        return null
-      }
-      const size = readFileSync(sizePath, 'utf8')
-      // Consumed so a later probe cannot pass on an earlier report.
-      rmSync(sizePath, { force: true })
-      return size
+    readReportedSize: (marker, token) => {
+      const sizePath = `${fixturePath}.${marker}.${token}.size`
+      return existsSync(sizePath) ? readFileSync(sizePath, 'utf8') : null
     },
     dispose: () => rmSync(scratch, { recursive: true, force: true })
   }

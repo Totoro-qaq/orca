@@ -10,18 +10,24 @@ import { getTerminalContent, waitForActivePanePtyId } from './helpers/terminal'
 // The most recent TERMINAL_WORKTREE_HOT_RETAIN_LIMIT worktrees stay warm, so park needs more.
 const WARM_WORKTREE_COUNT = 4
 
+let probeCount = 0
+
+/** Asks the PTY's own process for its grid; the token ties the reply to this request. */
 async function readHostPtySize(
   page: Page,
   terminal: string,
-  readReportedSize: () => string | null
+  readReportedSize: (token: string) => string | null
 ): Promise<string | null> {
+  const token = `probe${++probeCount}`
   await callColdActivationRuntime(page, 'terminal.send', {
     terminal,
-    text: 'SIZE',
+    text: `SIZE:${token}`,
     enter: true,
     client: { id: 'viewer-size-e2e', type: 'desktop' }
   })
-  return readReportedSize()
+  let size: string | null = null
+  await expect.poll(() => (size = readReportedSize(token)), { timeout: 10_000 }).not.toBeNull()
+  return size
 }
 
 // Parking closes the client's stream, the last viewer of the PTY. A windowless host has no pane
@@ -100,14 +106,12 @@ test('a headless host keeps a parked terminal at its last viewer grid', async ({
       const terminal = window.__paneManagers?.get(id)?.getActivePane()?.terminal
       return terminal ? `${terminal.cols}x${terminal.rows}` : null
     }, target.tabId)
-    await expect
-      .poll(
-        () => readHostPtySize(page, target.terminal, () => fixture.readReportedSize(`${marker}_0`)),
-        {
-          timeout: 30_000,
-          intervals: [500, 1_000, 2_000]
-        }
+    const readTargetSize = (): Promise<string | null> =>
+      readHostPtySize(page, target.terminal, (token) =>
+        fixture.readReportedSize(`${marker}_0`, token)
       )
+    await expect
+      .poll(readTargetSize, { timeout: 30_000, intervals: [500, 1_000, 2_000] })
       .toBe(paneGrid)
 
     for (const warm of worktrees.slice(1)) {
@@ -131,17 +135,7 @@ test('a headless host keeps a parked terminal at its last viewer grid', async ({
       .toBe(true)
     // Give a reclaim, if any, time to land before sampling the parked PTY.
     await page.waitForTimeout(1_000)
-    let parkedSize: string | null = null
-    await expect
-      .poll(
-        async () =>
-          (parkedSize = await readHostPtySize(page, target.terminal, () =>
-            fixture.readReportedSize(`${marker}_0`)
-          )),
-        { timeout: 15_000, intervals: [500, 1_000] }
-      )
-      .not.toBeNull()
-    expect(parkedSize).toBe(paneGrid)
+    expect(await readTargetSize()).toBe(paneGrid)
   } finally {
     await client?.dispose()
     await host.dispose()
