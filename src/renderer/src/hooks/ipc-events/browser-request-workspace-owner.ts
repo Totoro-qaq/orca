@@ -59,6 +59,25 @@ export function resolveRemoteCliBrowserWorkspace(
     : null
 }
 
+/**
+ * Whether this desktop renders the tab: every page records an explicit null runtime, as the tab
+ * bar's + and a managed SSH host's bridged create do. A paired server's streamed page never does.
+ */
+export function isDesktopRenderedBrowserTab(
+  state: Pick<AppState, 'browserTabsByWorktree' | 'browserPagesByWorkspace'>,
+  tabOrPageId: string
+): boolean {
+  for (const tabs of Object.values(state.browserTabsByWorktree)) {
+    for (const tab of tabs) {
+      const pages = state.browserPagesByWorkspace[tab.id] ?? []
+      if (tab.id === tabOrPageId || pages.some((page) => page.id === tabOrPageId)) {
+        return pages.length > 0 && pages.every((page) => page.browserRuntimeEnvironmentId === null)
+      }
+    }
+  }
+  return false
+}
+
 /** The workspace holding a browser tab, addressed by its tab (workspace) id or one of its page ids. */
 export function findBrowserTabWorktreeId(
   state: Pick<AppState, 'browserTabsByWorktree' | 'browserPagesByWorkspace'>,

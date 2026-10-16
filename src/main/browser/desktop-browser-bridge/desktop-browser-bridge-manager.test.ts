@@ -27,7 +27,10 @@ function harness(options: { supports?: boolean } = {}) {
     sendRequest: ReturnType<typeof vi.fn>
   }[] = []
   const timers: { run: () => void; delayMs: number }[] = []
-  const execute = vi.fn(async () => ({ ok: true as const, result: { url: 'https://a.test/' } }))
+  const execute = vi.fn<DesktopBrowserBridgeManagerDeps['execute']>(async () => ({
+    ok: true,
+    result: { url: 'https://a.test/' }
+  }))
   const subscribe = vi.fn(
     () =>
       async (callbacks: Callbacks): Promise<RemoteRuntimeSubscription> => {
@@ -91,7 +94,11 @@ describe('DesktopBrowserBridgeManager', () => {
     )
 
     await vi.waitFor(() => expect(socket.sendRequest).toHaveBeenCalled())
-    expect(h.execute).toHaveBeenCalledWith(HOST, expect.objectContaining({ requestId: 'req-1' }))
+    expect(h.execute).toHaveBeenCalledWith(
+      HOST,
+      expect.objectContaining({ requestId: 'req-1' }),
+      expect.any(AbortSignal)
+    )
     expect(socket.sendRequest).toHaveBeenCalledWith(
       'desktopBrowserBridge.result',
       { attachmentId: 'att-1', requestId: 'req-1', ok: true, result: { url: 'https://a.test/' } },
@@ -173,5 +180,38 @@ describe('DesktopBrowserBridgeManager', () => {
 
     await Promise.resolve()
     expect(h.subscriptions).toHaveLength(1)
+  })
+
+  it('revokes a command still running when the host detaches', async () => {
+    const h = harness()
+    let seen: AbortSignal | null = null
+    h.execute.mockImplementationOnce(async (_candidate, _request, signal) => {
+      seen = signal
+      return { ok: true, result: {} }
+    })
+    h.manager.reconcile()
+    await vi.waitFor(() => expect(h.subscriptions).toHaveLength(1))
+    const socket = h.subscriptions[0]!
+    socket.callbacks.onResponse(event({ type: 'ready', attachmentId: 'att-1' }))
+    socket.callbacks.onResponse(
+      event({ type: 'request', requestId: 'r', method: 'browser.goto', params: {} })
+    )
+    await vi.waitFor(() => expect(seen).not.toBeNull())
+
+    h.setCandidates([])
+    h.manager.reconcile()
+
+    expect(seen!.aborted).toBe(true)
+  })
+
+  it('resetting an environment drops its socket and attaches again on a fresh one', async () => {
+    const h = harness()
+    h.manager.reconcile()
+    await vi.waitFor(() => expect(h.subscriptions).toHaveLength(1))
+
+    h.manager.resetEnvironment('env-a')
+
+    expect(h.subscriptions[0]!.close).toHaveBeenCalled()
+    await vi.waitFor(() => expect(h.subscriptions).toHaveLength(2))
   })
 })

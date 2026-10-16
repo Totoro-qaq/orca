@@ -7,6 +7,7 @@
 import {
   DESKTOP_BROWSER_BRIDGE_NOT_FORWARDED_CODE,
   DESKTOP_BROWSER_BRIDGE_SCOPE_CODE,
+  DESKTOP_BROWSER_BRIDGE_UNAVAILABLE_CODE,
   isDesktopBrowserBridgeMethod,
   type DesktopBrowserBridgeRequest
 } from '../../../shared/desktop-browser-bridge-protocol'
@@ -41,6 +42,8 @@ export type DesktopBrowserBridgeExecutorDeps = {
   }): Promise<string | null>
   /** The workspace a mounted page registered under, if it has mounted. */
   worktreeIdForPage(browserPageId: string): string | null
+  /** Records that a host drives this workspace's pages, so they lose programmatic clipboard reads. */
+  markWorkspaceDriven(workspaceId: string): void
   dispatch(method: string, params: Record<string, unknown>): Promise<RpcResponse>
   audit(entry: DesktopBrowserBridgeAuditEntry): void
 }
@@ -66,7 +69,9 @@ class BridgeRefusal extends Error {
 
 export async function executeDesktopBrowserBridgeRequest(
   request: DesktopBrowserBridgeRequest,
-  deps: DesktopBrowserBridgeExecutorDeps
+  deps: DesktopBrowserBridgeExecutorDeps,
+  /** Aborted when the bridge detaches; a command not yet dispatched must then never run. */
+  signal?: AbortSignal
 ): Promise<DesktopBrowserBridgeOutcome> {
   const audit: Omit<DesktopBrowserBridgeAuditEntry, 'outcome' | 'code'> = {
     environmentId: deps.environmentId,
@@ -80,6 +85,13 @@ export async function executeDesktopBrowserBridgeRequest(
     const { params, workspaceId, page } = await scopeRequest(request, deps)
     audit.workspaceId = workspaceId
     audit.page = page
+    if (signal?.aborted) {
+      throw new BridgeRefusal(
+        DESKTOP_BROWSER_BRIDGE_UNAVAILABLE_CODE,
+        'The Orca desktop stopped sharing its browser before this command ran.'
+      )
+    }
+    deps.markWorkspaceDriven(workspaceId)
     const response = await runInRemoteCliBrowserScope(workspaceId, () =>
       deps.dispatch(request.method, params)
     )
@@ -117,6 +129,22 @@ async function scopeRequest(
       delete params[key]
     }
   }
+  if (
+    (request.method === 'browser.goto' || request.method === 'browser.tabCreate') &&
+    !isWebNavigationUrl(params.url, request.method === 'browser.tabCreate')
+  ) {
+    // Why: a bare path normalizes to file:// and loadURL skips the guest navigation guard.
+    throw new BridgeRefusal(
+      'invalid_argument',
+      'An SSH host can open only http:// or https:// URLs in the desktop browser. Pass the full URL.'
+    )
+  }
+  if (request.method === 'browser.keypress' && isPasteChord(params.key)) {
+    throw new BridgeRefusal(
+      DESKTOP_BROWSER_BRIDGE_NOT_FORWARDED_CODE,
+      'An SSH host cannot paste from the desktop clipboard. Use orca type or orca fill instead.'
+    )
+  }
   const requestedWorkspaceId = request.workspaceId ?? null
   if (
     params.worktree !== undefined &&
@@ -141,6 +169,42 @@ async function scopeRequest(
   }
   params.worktree = `id:${workspaceId}`
   return { params, workspaceId, page }
+}
+
+function isWebNavigationUrl(value: unknown, optional: boolean): boolean {
+  if (value === undefined && optional) {
+    return true
+  }
+  if (typeof value !== 'string') {
+    return false
+  }
+  if (value === 'about:blank') {
+    return true
+  }
+  try {
+    const protocol = new URL(value).protocol
+    return protocol === 'http:' || protocol === 'https:'
+  } catch {
+    return false
+  }
+}
+
+const PASTE_MODIFIERS = new Set(['control', 'ctrl', 'meta', 'cmd', 'command', 'super'])
+
+function isPasteChord(value: unknown): boolean {
+  if (typeof value !== 'string') {
+    return false
+  }
+  const parts = value
+    .toLowerCase()
+    .split('+')
+    .map((part) => part.trim())
+  const key = parts.at(-1)
+  const modifiers = parts.slice(0, -1)
+  return (
+    (key === 'v' && modifiers.some((modifier) => PASTE_MODIFIERS.has(modifier))) ||
+    (key === 'insert' && modifiers.includes('shift'))
+  )
 }
 
 function outOfScope(): BridgeRefusal {

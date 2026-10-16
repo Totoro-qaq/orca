@@ -31,7 +31,8 @@ import { getSshTargetRegistryStore } from '../ssh/ssh-target-registry'
 import type { SshConnectionManager } from '../ssh/ssh-connection-manager'
 import { getRuntimeEnvironmentStatus } from './runtime-environment-status-probe'
 import { isRuntimeEnvironmentManuallyDisconnected } from './runtime-environment-connectivity-handlers'
-import { setDesktopBrowserBridgeReconciler } from './desktop-browser-bridge-reconcile'
+import { setDesktopBrowserBridgeControl } from './desktop-browser-bridge-reconcile'
+import { markRemoteCliDrivenWorkspace } from '../browser/desktop-browser-bridge/remote-cli-driven-workspaces'
 
 const ATTACH_TIMEOUT_MS = 15_000
 const BRIDGE_CLIENT_ID = randomUUID()
@@ -128,30 +129,38 @@ export function installDesktopBrowserBridge(options: {
         }
       )
     },
-    execute: (candidate, request) =>
-      executeDesktopBrowserBridgeRequest(request, {
-        environmentId: candidate.environmentId,
-        hostLabel: candidate.hostLabel,
-        resolveWorkspace: (scope) =>
-          rendererResolveRemoteCliWorkspace(getMainWindow, {
-            environmentId: candidate.environmentId,
-            ...(scope.workspaceId ? { workspaceId: scope.workspaceId } : {}),
-            ...(scope.page ? { pageId: scope.page } : {})
-          }),
-        worktreeIdForPage: (browserPageId) =>
-          browserManager.getWorktreeIdForTab(browserPageId) ?? null,
-        dispatch: (method, params) =>
-          getDispatcher().dispatch({ id: randomUUID(), authToken: '', method, params }),
-        audit: (entry) => log(`audit ${JSON.stringify(entry)}`)
-      }),
+    execute: (candidate, request, signal) =>
+      executeDesktopBrowserBridgeRequest(
+        request,
+        {
+          environmentId: candidate.environmentId,
+          hostLabel: candidate.hostLabel,
+          resolveWorkspace: (scope) =>
+            rendererResolveRemoteCliWorkspace(getMainWindow, {
+              environmentId: candidate.environmentId,
+              ...(scope.workspaceId ? { workspaceId: scope.workspaceId } : {}),
+              ...(scope.page ? { pageId: scope.page } : {})
+            }),
+          markWorkspaceDriven: markRemoteCliDrivenWorkspace,
+          worktreeIdForPage: (browserPageId) =>
+            browserManager.getWorktreeIdForTab(browserPageId) ?? null,
+          dispatch: (method, params) =>
+            getDispatcher().dispatch({ id: randomUUID(), authToken: '', method, params }),
+          audit: (entry) => log(`audit ${JSON.stringify(entry)}`)
+        },
+        signal
+      ),
     log
   })
-  setDesktopBrowserBridgeReconciler(() => manager?.reconcile())
+  setDesktopBrowserBridgeControl({
+    reconcile: () => manager?.reconcile(),
+    resetEnvironment: (environmentId) => manager?.resetEnvironment(environmentId)
+  })
   manager.reconcile()
 }
 
 export function disposeDesktopBrowserBridge(): void {
-  setDesktopBrowserBridgeReconciler(null)
+  setDesktopBrowserBridgeControl(null)
   manager?.dispose()
   manager = null
 }

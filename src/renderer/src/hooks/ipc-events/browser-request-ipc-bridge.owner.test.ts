@@ -145,6 +145,22 @@ describe('browser requests from this desktop follow the workspace owner (#22275)
     })
   })
 
+  it("closes a desktop-rendered tab in a managed host's workspace (#29145)", () => {
+    const state = storeState(LOCAL_WT)
+    mocks.getState.mockReturnValue({
+      ...state,
+      browserPagesByWorkspace: {
+        ...state.browserPagesByWorkspace,
+        'ws-remote': [{ id: 'page-remote', browserRuntimeEnvironmentId: null }]
+      }
+    })
+
+    mocks.closeListener?.({ requestId: 'c3', tabId: 'page-remote', worktreeId: REMOTE_WT })
+
+    expect(mocks.closeBrowserTab).toHaveBeenCalledExactlyOnceWith('ws-remote')
+    expect(mocks.replyTabClose).toHaveBeenCalledWith({ requestId: 'c3' })
+  })
+
   it("closes a local page but refuses a paired server's page", () => {
     mocks.getState.mockReturnValue(storeState(LOCAL_WT))
 

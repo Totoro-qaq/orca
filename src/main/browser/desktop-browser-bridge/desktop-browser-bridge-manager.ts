@@ -25,7 +25,8 @@ export type DesktopBrowserBridgeManagerDeps = {
   subscribe(environmentId: string): DesktopBrowserBridgeSubscribe
   execute(
     candidate: DesktopBrowserBridgeCandidate,
-    request: DesktopBrowserBridgeRequest
+    request: DesktopBrowserBridgeRequest,
+    signal: AbortSignal
   ): Promise<DesktopBrowserBridgeOutcome>
   log(message: string): void
   setTimer?(run: () => void, delayMs: number): ReturnType<typeof setTimeout>
@@ -81,6 +82,12 @@ export class DesktopBrowserBridgeManager {
     }
   }
 
+  /** Drops an attachment whose transport was retired (re-pair, disconnect) and re-checks at once. */
+  resetEnvironment(environmentId: string): void {
+    this.detach(environmentId, 'environment transport was retired')
+    this.reconcile()
+  }
+
   isAttached(environmentId: string): boolean {
     return this.entries.get(environmentId)?.connection?.ready === true
   }
@@ -118,7 +125,7 @@ export class DesktopBrowserBridgeManager {
     }
     const connection = new DesktopBrowserBridgeConnection({
       subscribe: this.deps.subscribe(environmentId),
-      execute: (request) => this.deps.execute(entry.candidate, request),
+      execute: (request, signal) => this.deps.execute(entry.candidate, request, signal),
       onReady: () => {
         entry.failures = 0
         this.deps.log(`attached: host=${entry.candidate.hostLabel} env=${environmentId}`)

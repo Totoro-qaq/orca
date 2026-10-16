@@ -192,6 +192,19 @@ test('a managed SSH host drives the desktop browser only while its CLI control s
     expect(listed.ok).toBe(true)
     expect(JSON.stringify(listed.result)).toContain(browserPageId)
     await page.screenshot({ path: testInfo.outputPath('desktop-browser-bridge-on.png') })
+    // A desktop file is never reachable, even through a tab the host may drive.
+    const fileRead = await hostCli(
+      page,
+      target,
+      tabId,
+      `orca goto --url file:///etc/hosts --page ${browserPageId}`
+    )
+    expect(fileRead.error?.code).toBe('invalid_argument')
+    const closed = await hostCli(page, target, tabId, `orca tab close --page ${browserPageId}`)
+    expect(closed.ok).toBe(true)
+    await expect
+      .poll(() => browserTabUrls(page, seeded.worktreeId), { timeout: 30_000 })
+      .not.toContain(navigatedUrl)
 
     // Off again: the bridge detaches at once and the host is refused.
     await setRemoteCliControl(page, seeded.targetId, false)

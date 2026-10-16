@@ -52,12 +52,14 @@ function request(overrides: Partial<DesktopBrowserBridgeRequest>): DesktopBrowse
 
 function deps(overrides: Partial<DesktopBrowserBridgeExecutorDeps> = {}) {
   const audit: DesktopBrowserBridgeAuditEntry[] = []
+  const driven: string[] = []
   const dispatched: { method: string; params: Record<string, unknown>; scopeProbe: unknown }[] = []
   const value: DesktopBrowserBridgeExecutorDeps = {
     environmentId: 'env-host',
     hostLabel: 'sandbox',
     resolveWorkspace: rendererScope,
     worktreeIdForPage: (page) => MOUNTED_PAGE_OWNERS[page] ?? null,
+    markWorkspaceDriven: (workspaceId) => driven.push(workspaceId),
     dispatch: async (method, params) => {
       // Inside the dispatch, a selector for any other workspace must be refused.
       const scopeProbe = await resolveRemoteCliBrowserScopeSelector(`id:${LOCAL_WORKSPACE}`)?.catch(
@@ -69,7 +71,7 @@ function deps(overrides: Partial<DesktopBrowserBridgeExecutorDeps> = {}) {
     audit: (entry) => audit.push(entry),
     ...overrides
   }
-  return { value, audit, dispatched }
+  return { value, audit, dispatched, driven }
 }
 
 describe('executeDesktopBrowserBridgeRequest', () => {
@@ -312,6 +314,119 @@ describe('executeDesktopBrowserBridgeRequest', () => {
     )
 
     expect(outcome).toMatchObject({ ok: false, error: { code: 'browser_tab_not_found' } })
+    expect(dispatched).toEqual([])
+  })
+
+  it('marks the workspace it drives so its pages lose programmatic clipboard reads', async () => {
+    const { value, driven } = deps()
+
+    await executeDesktopBrowserBridgeRequest(
+      request({ workspaceId: HOST_WORKSPACE, params: { worktree: `id:${HOST_WORKSPACE}` } }),
+      value
+    )
+
+    expect(driven).toEqual([HOST_WORKSPACE])
+  })
+
+  it.each([
+    'file:///etc/passwd',
+    '/etc/passwd',
+    'localhost:3000',
+    'javascript:alert(1)',
+    'chrome://settings',
+    'data:text/html,hi'
+  ])('refuses to navigate or open %s', async (url) => {
+    const { value, dispatched } = deps()
+
+    for (const method of ['browser.goto', 'browser.tabCreate']) {
+      const outcome = await executeDesktopBrowserBridgeRequest(
+        request({
+          method,
+          workspaceId: HOST_WORKSPACE,
+          params: { url, worktree: `id:${HOST_WORKSPACE}` }
+        }),
+        value
+      )
+      expect(outcome).toMatchObject({ ok: false, error: { code: 'invalid_argument' } })
+    }
+    expect(dispatched).toEqual([])
+  })
+
+  it('opens http(s) URLs and a blank tab', async () => {
+    const { value, dispatched } = deps()
+
+    for (const params of [{ url: 'http://localhost:3000/a' }, { url: 'https://a.test' }, {}]) {
+      await executeDesktopBrowserBridgeRequest(
+        request({
+          method: 'browser.tabCreate',
+          workspaceId: HOST_WORKSPACE,
+          params: { ...params, worktree: `id:${HOST_WORKSPACE}` }
+        }),
+        value
+      )
+    }
+
+    expect(dispatched).toHaveLength(3)
+  })
+
+  it.each(['Control+v', 'Meta+V', 'cmd + v', 'Shift+Insert', 'Control+Shift+V'])(
+    'refuses the paste chord %s',
+    async (key) => {
+      const { value, dispatched } = deps()
+
+      const outcome = await executeDesktopBrowserBridgeRequest(
+        request({
+          method: 'browser.keypress',
+          workspaceId: HOST_WORKSPACE,
+          params: { key, worktree: `id:${HOST_WORKSPACE}` }
+        }),
+        value
+      )
+
+      expect(outcome).toMatchObject({
+        ok: false,
+        error: { code: 'desktop_browser_bridge_not_forwarded' }
+      })
+      expect(dispatched).toEqual([])
+    }
+  )
+
+  it('lets ordinary keys through', async () => {
+    const { value, dispatched } = deps()
+
+    for (const key of ['Enter', 'v', 'Control+a', 'Shift+Tab']) {
+      await executeDesktopBrowserBridgeRequest(
+        request({
+          method: 'browser.keypress',
+          workspaceId: HOST_WORKSPACE,
+          params: { key, worktree: `id:${HOST_WORKSPACE}` }
+        }),
+        value
+      )
+    }
+
+    expect(dispatched).toHaveLength(4)
+  })
+
+  it('never runs a command whose bridge was revoked while its scope was being checked', async () => {
+    const revoked = new AbortController()
+    const { value, dispatched } = deps({
+      resolveWorkspace: async (scope) => {
+        revoked.abort()
+        return rendererScope(scope)
+      }
+    })
+
+    const outcome = await executeDesktopBrowserBridgeRequest(
+      request({ workspaceId: HOST_WORKSPACE, params: { worktree: `id:${HOST_WORKSPACE}` } }),
+      value,
+      revoked.signal
+    )
+
+    expect(outcome).toMatchObject({
+      ok: false,
+      error: { code: 'desktop_browser_bridge_unavailable' }
+    })
     expect(dispatched).toEqual([])
   })
 })

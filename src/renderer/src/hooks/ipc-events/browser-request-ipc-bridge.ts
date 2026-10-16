@@ -10,6 +10,7 @@ import { acquireBrowserAutomationBootstrapLease } from './browser-automation-boo
 import {
   findBrowserTabWorktreeId,
   isBrowserWorkspaceOwnedByPairedServer,
+  isDesktopRenderedBrowserTab,
   resolveRemoteCliBrowserWorkspace
 } from './browser-request-workspace-owner'
 
@@ -198,7 +199,11 @@ export function registerBrowserRequestIpcBridge(unsubs: (() => void)[]): void {
           return
         }
         const closeWorktreeId = findBrowserTabWorktreeId(store, tabToClose)
-        if (closeWorktreeId && isBrowserWorkspaceOwnedByPairedServer(store, closeWorktreeId)) {
+        if (
+          closeWorktreeId &&
+          isBrowserWorkspaceOwnedByPairedServer(store, closeWorktreeId) &&
+          !isDesktopRenderedBrowserTab(store, tabToClose)
+        ) {
           window.api.ui.replyTabClose({
             requestId: data.requestId,
             error: pairedServerWorkspaceError()

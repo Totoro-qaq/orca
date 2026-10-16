@@ -24,11 +24,15 @@ export class DesktopBrowserBridgeConnection {
   private subscription: RemoteRuntimeSubscription | null = null
   private attachmentId: string | null = null
   private closed = false
+  private readonly revoked = new AbortController()
 
   constructor(
     private readonly options: {
       subscribe: DesktopBrowserBridgeSubscribe
-      execute(request: DesktopBrowserBridgeRequest): Promise<DesktopBrowserBridgeOutcome>
+      execute(
+        request: DesktopBrowserBridgeRequest,
+        signal: AbortSignal
+      ): Promise<DesktopBrowserBridgeOutcome>
       onReady(): void
       /** Called once, when the attachment ends for any reason other than close(). */
       onLost(error: Error): void
@@ -63,6 +67,7 @@ export class DesktopBrowserBridgeConnection {
       return
     }
     this.closed = true
+    this.revoked.abort()
     this.attachmentId = null
     const subscription = this.subscription
     this.subscription = null
@@ -98,7 +103,7 @@ export class DesktopBrowserBridgeConnection {
   }
 
   private async answer(attachmentId: string, request: DesktopBrowserBridgeRequest): Promise<void> {
-    const outcome = await this.options.execute(request)
+    const outcome = await this.options.execute(request, this.revoked.signal)
     const sendRequest = this.subscription?.sendRequest
     if (this.closed || this.attachmentId !== attachmentId || !sendRequest) {
       return
