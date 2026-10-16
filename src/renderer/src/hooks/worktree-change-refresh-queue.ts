@@ -11,6 +11,8 @@ type WorktreeChangeOwner = {
   executionHostId?: ExecutionHostId
   sortOrderOnly?: boolean
   sortOrders?: WorktreeSortOrderUpdate[]
+  // Connection the values were published on; a patch from another connection refetches instead.
+  sortOrderFence?: string
 }
 
 type WorktreeChangeEvent = {
@@ -22,6 +24,7 @@ type WorktreeChangeEvent = {
   executionHostId?: ExecutionHostId
   sortOrderOnly?: boolean
   sortOrders?: WorktreeSortOrderUpdate[]
+  sortOrderFence?: string
 }
 
 type WorktreeChangeRefreshHandler = (
@@ -70,7 +73,7 @@ export function createWorktreeChangeRefreshQueue(
             ...(next?.executionHostId ? { executionHostId: next.executionHostId } : {}),
             ...(next?.sortOrderOnly === true ? { sortOrderOnly: true } : {}),
             ...(next?.sortOrderOnly === true && next.sortOrders
-              ? { sortOrders: next.sortOrders }
+              ? { sortOrders: next.sortOrders, sortOrderFence: next.sortOrderFence }
               : {})
           })
         } catch (error) {
@@ -126,19 +129,21 @@ export function createWorktreeChangeRefreshQueue(
             executionHostId: event.executionHostId,
             ...(event.sortOrderOnly === true ? { sortOrderOnly: true } : {}),
             ...(event.sortOrderOnly === true && event.sortOrders
-              ? { sortOrders: event.sortOrders }
+              ? { sortOrders: event.sortOrders, sortOrderFence: event.sortOrderFence }
               : {})
           })
         } else if (event.sortOrderOnly !== true) {
           // An order save cannot erase an adjacent structural refresh.
           delete lastQueued.sortOrderOnly
           delete lastQueued.sortOrders
+          delete lastQueued.sortOrderFence
         } else if (lastQueued.sortOrders) {
-          if (event.sortOrders) {
+          if (event.sortOrders && event.sortOrderFence === lastQueued.sortOrderFence) {
             lastQueued.sortOrders = mergeSortOrders(lastQueued.sortOrders, event.sortOrders)
           } else {
-            // An order save without values needs the refetch to learn them.
+            // Values missing or from another connection: the refetch reads current ones.
             delete lastQueued.sortOrders
+            delete lastQueued.sortOrderFence
           }
         }
       }

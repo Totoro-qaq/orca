@@ -336,6 +336,26 @@ describe('order-only refresh with actual store actions', () => {
     expect(store.getState().worktreesByRepo.repo[0].sortOrder).toBe(99)
   })
 
+  it('refetches instead of applying values published before a reconnect', async () => {
+    const h = createActualActionFixture()
+    await h.warm()
+    const listing = Promise.withResolvers<void>()
+    h.holdListing(listing.promise)
+    h.queue.enqueue({ repoId: 'repo', executionHostId: 'runtime:env-1' })
+    h.queue.enqueue({
+      repoId: 'repo',
+      executionHostId: 'runtime:env-1',
+      sortOrderOnly: true,
+      sortOrders: [{ worktreeId: h.worktree.id, sortOrder: 99 }]
+    })
+    advanceRuntimeEnvironmentConnectionGeneration('env-1')
+    h.setOrder(200)
+    listing.resolve()
+    await vi.waitFor(() => expect(store.getState().worktreesByRepo.repo[0].sortOrder).toBe(200))
+    await flushPromises()
+    expect(store.getState().worktreesByRepo.repo[0].sortOrder).toBe(200)
+  })
+
   it('leaves a same-id row owned by another host untouched', async () => {
     const h = createActualActionFixture()
     const local = makeWorktree({ id: h.worktree.id, repoId: 'repo', hostId: 'local', sortOrder: 5 })
