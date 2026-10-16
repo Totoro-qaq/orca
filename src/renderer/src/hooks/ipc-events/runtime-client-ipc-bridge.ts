@@ -32,6 +32,7 @@ import {
   invalidateRuntimeClientEventReplay
 } from './runtime-environment-subscription-selection'
 import type { WorktreeEventRuntime } from './worktree-event-runtime'
+import { readPublishedSortOrders } from '../../store/slices/worktrees/listing/worktree-sort-order-patch'
 
 export function registerRuntimeClientIpcBridge(
   unsubs: (() => void)[],
@@ -134,11 +135,14 @@ export function registerRuntimeClientIpcBridge(
       if (event.sortOrderOnly !== true) {
         invalidateRemoteWorktreeLineage(useAppStore.getState, environmentId)
       }
+      const sortOrders =
+        event.sortOrderOnly === true ? readPublishedSortOrders(event.sortOrders) : null
       const owned = adoptFromEndpoint(endpoint, {
         kind: 'worktreeEvent',
         row: {
           repoId: event.repoId,
-          ...(event.sortOrderOnly === true ? { sortOrderOnly: true } : {})
+          ...(event.sortOrderOnly === true ? { sortOrderOnly: true } : {}),
+          ...(sortOrders ? { sortOrders } : {})
         }
       })
       void ensureRuntimeEventRepoKnown(environmentId, owned).then(() =>

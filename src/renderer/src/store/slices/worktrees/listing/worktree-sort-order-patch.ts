@@ -1,0 +1,60 @@
+import type { ExecutionHostId } from '../../../../../../shared/execution-host'
+import type { WorktreeSortOrderUpdate } from '../../../../../../shared/worktree/sort-order-update'
+import type { AppState } from '../../../types'
+import { worktreeHostMatchOptions, worktreeMatchesHost } from './worktree-host-ownership'
+
+/**
+ * Applies a host's published order save to one repo's rows in place.
+ * Why no sortEpoch bump: an order save must not schedule the next Smart re-sort (#27268).
+ */
+export function patchWorktreeSortOrders(
+  state: AppState,
+  repoId: string,
+  hostId: ExecutionHostId,
+  sortOrders: readonly WorktreeSortOrderUpdate[]
+): Pick<AppState, 'worktreesByRepo'> | AppState {
+  const current = state.worktreesByRepo[repoId]
+  if (!current || sortOrders.length === 0) {
+    return state
+  }
+  const sortOrderById = new Map(sortOrders.map((entry) => [entry.worktreeId, entry.sortOrder]))
+  const matchOptions = worktreeHostMatchOptions(state, repoId, hostId)
+  let changed = false
+  const next = current.map((worktree) => {
+    const sortOrder = sortOrderById.get(worktree.id)
+    if (
+      sortOrder === undefined ||
+      !Number.isFinite(sortOrder) ||
+      worktree.sortOrder === sortOrder ||
+      !worktreeMatchesHost(worktree, hostId, matchOptions)
+    ) {
+      return worktree
+    }
+    changed = true
+    return { ...worktree, sortOrder }
+  })
+  return changed ? { worktreesByRepo: { ...state.worktreesByRepo, [repoId]: next } } : state
+}
+
+/** Valid published order entries, or null when an older or malformed host sent none. */
+export function readPublishedSortOrders(value: unknown): WorktreeSortOrderUpdate[] | null {
+  if (!Array.isArray(value)) {
+    return null
+  }
+  const entries: WorktreeSortOrderUpdate[] = []
+  for (const entry of value) {
+    if (
+      typeof entry !== 'object' ||
+      entry === null ||
+      !('worktreeId' in entry) ||
+      !('sortOrder' in entry) ||
+      typeof entry.worktreeId !== 'string' ||
+      typeof entry.sortOrder !== 'number' ||
+      !Number.isFinite(entry.sortOrder)
+    ) {
+      return null
+    }
+    entries.push({ worktreeId: entry.worktreeId, sortOrder: entry.sortOrder })
+  }
+  return entries
+}

@@ -117,7 +117,7 @@ function createHarness() {
       replay = false,
       event?:
         | RuntimeClientEvent
-        | { type: 'worktreesChanged'; repoId: string; sortOrderOnly: unknown }
+        | { type: 'worktreesChanged'; repoId: string; sortOrderOnly: unknown; sortOrders?: unknown }
     ) => {
       const response = {
         id: 'r',
@@ -212,6 +212,42 @@ it.each([true, false, undefined, 'true', 1, null])(
     }
   }
 )
+
+it.each([
+  {
+    sortOrderOnly: true,
+    sortOrders: [{ worktreeId: 'remote-repo::/a', sortOrder: 5 }],
+    kept: true
+  },
+  {
+    sortOrderOnly: undefined,
+    sortOrders: [{ worktreeId: 'remote-repo::/a', sortOrder: 5 }],
+    kept: false
+  },
+  { sortOrderOnly: true, sortOrders: [{ worktreeId: 'remote-repo::/a' }], kept: false }
+])('forwards published order values only on a valid order-only event (%o)', async (input) => {
+  const h = createHarness()
+  try {
+    h.start()
+    h.emit(0, false, {
+      type: 'worktreesChanged',
+      repoId: 'remote-repo',
+      sortOrderOnly: input.sortOrderOnly,
+      sortOrders: input.sortOrders
+    })
+    for (let index = 0; index < 10; index += 1) {
+      await Promise.resolve()
+    }
+    expect(h.enqueue).toHaveBeenCalledWith({
+      repoId: 'remote-repo',
+      executionHostId: 'runtime:host-a',
+      ...(input.sortOrderOnly === true ? { sortOrderOnly: true } : {}),
+      ...(input.kept ? { sortOrders: input.sortOrders } : {})
+    })
+  } finally {
+    await h.finish()
+  }
+})
 
 it('invalidates lineage before unknown-repository discovery can block a structural event', async () => {
   const h = createHarness()

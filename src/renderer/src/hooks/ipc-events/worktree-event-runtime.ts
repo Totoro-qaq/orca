@@ -6,6 +6,8 @@ import {
 } from '../../../../shared/execution-host'
 import type { RuntimeClientEvent } from '../../../../shared/runtime-client-events'
 import type { AppState } from '../../store/types'
+import type { WorktreeSortOrderUpdate } from '../../../../shared/worktree/sort-order-update'
+import { patchWorktreeSortOrders } from '../../store/slices/worktrees/listing/worktree-sort-order-patch'
 import { useAppStore } from '../../store'
 import {
   invalidateRemoteWorktreeLineage,
@@ -54,8 +56,21 @@ export function createWorktreeEventRuntime(
       forceLocalOwner?: boolean
       executionHostId?: ExecutionHostId
       sortOrderOnly?: boolean
+      sortOrders?: WorktreeSortOrderUpdate[]
     }
   ): Promise<void> => {
+    if (
+      options?.sortOrderOnly === true &&
+      options.sortOrders &&
+      options.executionHostId &&
+      !renamed &&
+      !options.forceLocalOwner
+    ) {
+      // Why: the host published the saved values, so refetching the repo would only re-download them (#27268).
+      const { executionHostId, sortOrders } = options
+      useAppStore.setState((s) => patchWorktreeSortOrders(s, repoId, executionHostId, sortOrders))
+      return
+    }
     const localRefreshStartedWithRuntime =
       options?.forceLocalOwner === true && isRuntimeEnvironmentActive()
     // Why: capture active-ness before migration moves the pointer; re-key maps before the diff so a rename isn't a deletion.
