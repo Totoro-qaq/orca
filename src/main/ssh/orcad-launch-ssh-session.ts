@@ -65,6 +65,47 @@ export function writeOrcadLaunchSshSessionCommand(
   )
 }
 
+export function readOrcadLaunchSshSessionCommand(
+  host: RemoteHostPlatform,
+  remoteInstallDir: string
+): string {
+  const file = shellEscape(
+    joinRemotePath(host, remoteInstallDir, ORCAD_LAUNCH_SSH_SESSION_FILENAME)
+  )
+  return `head -c 512 ${file} 2>/dev/null || true`
+}
+
+// The `<sshd pid> <lstart words>` of a record; anything else is never echoed into a command.
+const SESSION_PATTERN = /^\d+(?: [A-Za-z0-9:]+)+$/u
+
+/** The `<sshd pid> <lstart>` part of a record, or null when it isn't one. */
+export function orcadLaunchSshSessionOf(record: string): string | null {
+  const session = record.trim().replace(/^\d+ /u, '')
+  return session !== record.trim() && SESSION_PATTERN.test(session) ? session : null
+}
+
+/**
+ * Re-attributes the running orcad's record to an earlier session. For a restart whose terminal
+ * daemon survived: every terminal it spawns still carries that session, not the new launch's.
+ */
+export function carryOrcadLaunchSshSessionCommand(
+  host: RemoteHostPlatform,
+  remoteInstallDir: string,
+  session: string
+): string {
+  if (!SESSION_PATTERN.test(session)) {
+    throw new Error('orcad_launch_ssh_session_invalid')
+  }
+  const file = shellEscape(
+    joinRemotePath(host, remoteInstallDir, ORCAD_LAUNCH_SSH_SESSION_FILENAME)
+  )
+  const pidFile = shellEscape(joinRemotePath(host, remoteInstallDir, ORCAD_PID_FILENAME))
+  return (
+    `orcad_pid=$(cat ${pidFile} 2>/dev/null) && [ -n "$orcad_pid" ] && ` +
+    `( umask 077; echo "$orcad_pid" ${session} > ${file} )`
+  )
+}
+
 /** Answers LIVE, EXITED, UNVERIFIABLE, NOT_RECORDED or NOT_APPLICABLE. */
 export function orcadLaunchSshSessionProbeCommand(
   host: RemoteHostPlatform,

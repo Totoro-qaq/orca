@@ -10,6 +10,7 @@ const mocks = vi.hoisted(() => {
     wake: vi.fn(),
     rebuild: vi.fn(async () => {}),
     exec: vi.fn(),
+    retain: vi.fn(),
     host,
     active
   }
@@ -37,7 +38,8 @@ vi.mock('./orcad-managed-runtime-context', () => ({
   managedOrcadInstallDir: () => '/Users/dev/.orca-remote/orcad-1.0.0'
 }))
 vi.mock('./orcad-activation-lock', () => ({
-  withOrcadActivationLock: (_slot: unknown, run: () => Promise<unknown>) => run()
+  withOrcadActivationLock: (_slot: unknown, run: (lock: unknown) => Promise<unknown>) =>
+    run({ retain: mocks.retain })
 }))
 vi.mock('./orcad-activation-record-store', () => ({
   readOrcadActivationRecord: async () => ({ active: mocks.active.current })
@@ -67,6 +69,7 @@ beforeEach(() => {
   mocks.host.current = getRemoteHostPlatform('darwin-arm64')
   mocks.active.current = '1.0.0'
   mocks.stop.mockResolvedValue({ state: 'retired' })
+  mocks.exec.mockResolvedValue('')
   mocks.wake.mockResolvedValue({ outcome: 'started', readiness: {} })
 })
 
@@ -93,6 +96,36 @@ describe('restartManagedOrcadEnvironment', () => {
     expect(mocks.stop).toHaveBeenCalledOnce()
     expect(mocks.wake).toHaveBeenCalledOnce()
     expect(mocks.rebuild).toHaveBeenCalledWith('/u', 'env-1')
+  })
+
+  it('does not claim recovery when the restart’s own SSH session already ended', async () => {
+    mocks.census.mockResolvedValue(census(0))
+    mocks.exec.mockImplementation(async (_slot: unknown, command: string) =>
+      command.includes('sw_vers') ? 'EXITED\n' : ''
+    )
+    const result = await restartManagedOrcadEnvironment('/u', 'env-1')
+    expect(result.outcome).toBe('not-restarted')
+    expect(mocks.wake).toHaveBeenCalledOnce()
+  })
+
+  it('keeps the fence when the stop may still be running', async () => {
+    mocks.census.mockResolvedValue(census(0))
+    mocks.stop.mockResolvedValue({ state: 'unsettled', reason: 'still stopping' })
+    await restartManagedOrcadEnvironment('/u', 'env-1')
+    expect(mocks.retain).toHaveBeenCalledOnce()
+  })
+
+  it('carries the ended session forward when the daemon survived', async () => {
+    mocks.census.mockResolvedValue(census(0))
+    mocks.stop.mockResolvedValue({ state: 'unproven', reason: 'a terminal started' })
+    mocks.exec.mockImplementation(async (_slot: unknown, command: string) =>
+      command.startsWith('head -c') ? '41 500 Thu Oct 9 08:00:00 2026\n' : ''
+    )
+    await restartManagedOrcadEnvironment('/u', 'env-1')
+    const carried = mocks.exec.mock.calls
+      .map(([, command]) => String(command))
+      .find((command) => command.includes('umask 077'))
+    expect(carried).toContain('"$orcad_pid" 500 Thu Oct 9 08:00:00 2026 >')
   })
 
   it('leaves a server it could not prove stopped running', async () => {

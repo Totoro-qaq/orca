@@ -6,6 +6,8 @@ import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import {
   captureOrcadLaunchSshSessionCommand,
+  carryOrcadLaunchSshSessionCommand,
+  orcadLaunchSshSessionOf,
   ORCAD_LAUNCH_SSH_SESSION_FILENAME,
   orcadLaunchSshSessionProbeCommand,
   orcadSshSessionAncestorShellFunction,
@@ -127,6 +129,16 @@ describe.skipIf(process.platform === 'win32')('orcad launch SSH session', () => 
       `${pid} 500 Thu Oct 9 08:00:00 2026`
     )
     expect(probe()).toBe('live')
+    expect(probe({ FAKE_PS_GONE: '500' })).toBe('exited')
+  })
+
+  it('carries an earlier session onto the running orcad, rejecting anything but a record', () => {
+    writeRecord('88', '77 500 Thu Oct 9 08:00:00 2026')
+    const session = orcadLaunchSshSessionOf('77 500 Thu Oct 9 08:00:00 2026\n')
+    expect(session).toBe('500 Thu Oct 9 08:00:00 2026')
+    expect(orcadLaunchSshSessionOf('77 500 $(reboot)')).toBeNull()
+    expect(() => carryOrcadLaunchSshSessionCommand(mac, dir, '500; rm -rf /')).toThrow()
+    sh(carryOrcadLaunchSshSessionCommand(mac, dir, session!))
     expect(probe({ FAKE_PS_GONE: '500' })).toBe('exited')
   })
 
