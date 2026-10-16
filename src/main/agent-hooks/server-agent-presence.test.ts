@@ -452,6 +452,23 @@ describe('retained agent exit', () => {
     expect(await server.checkAgentPresenceSince(PANE, attachedAt)).not.toBe('exited')
   })
 
+  it('does not answer exited to a read overlapping the replacement-triggered probe', async () => {
+    const server = await createServer()
+    const attachedAt = Date.now() - 1
+    await hook(server, 'SessionStart')
+    let finish: (verdict: 'exited') => void = () => {}
+    probe.mockImplementationOnce(
+      () =>
+        new Promise<'live' | 'unverifiable' | 'exited'>((resolve) => {
+          finish = resolve
+        })
+    )
+    await hook(server, 'SessionStart', 'replacement', undefined, 4002)
+    const overlapping = server.checkAgentPresenceSince(PANE, attachedAt)
+    finish('exited')
+    expect(await overlapping).not.toBe('exited')
+  })
+
   it('drops the exit once a new agent reports from the pane', async () => {
     const server = await createServer()
     const attachedAt = Date.now() - 1

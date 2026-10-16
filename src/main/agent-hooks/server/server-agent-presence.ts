@@ -18,15 +18,21 @@ export abstract class AgentHookServerAgentPresence extends AgentHookServerLifecy
     const owner = row.agentPresence
     if (sender && owner?.process && !owner.ended && !isSameAgentProcess(sender, owner.process)) {
       const paneKey = this.resolvePaneKeyAlias(row.paneKey)
-      this.ownerChallengedByLiveSender.add(paneKey)
-      void this.checkAgentPresence(paneKey).finally(() =>
-        this.ownerChallengedByLiveSender.delete(paneKey)
-      )
+      const challenges = this.ownerChallengesByLiveSender
+      challenges.set(paneKey, (challenges.get(paneKey) ?? 0) + 1)
+      void this.checkAgentPresence(paneKey).finally(() => {
+        const remaining = (challenges.get(paneKey) ?? 1) - 1
+        if (remaining > 0) {
+          challenges.set(paneKey, remaining)
+        } else {
+          challenges.delete(paneKey)
+        }
+      })
     }
   }
 
   // Why: a live process already reports from these panes, so their owner's exit is not the pane's.
-  private readonly ownerChallengedByLiveSender = new Set<string>()
+  private readonly ownerChallengesByLiveSender = new Map<string, number>()
 
   /** Whether this pane's owner carries a process identity that its execution host can check. */
   hasVerifiableAgentProcess(paneKey: string): boolean {
@@ -42,7 +48,8 @@ export abstract class AgentHookServerAgentPresence extends AgentHookServerLifecy
     exitedSince: number
   ): Promise<AgentProcessVerdict | null> {
     const verdict = await this.checkAgentPresence(paneKey)
-    if (verdict !== null) {
+    // Why exits too: a probe's exit counts only if retained (not a replaced owner's).
+    if (verdict !== null && verdict !== 'exited') {
       return verdict
     }
     const exit =
@@ -79,7 +86,7 @@ export abstract class AgentHookServerAgentPresence extends AgentHookServerLifecy
             preserveResumeIdentity: true,
             endedPresence: { ...presence, ended: true }
           })
-          if (this.ownerChallengedByLiveSender.has(resolved)) {
+          if (this.ownerChallengesByLiveSender.has(resolved)) {
             this.forgetAgentExit(resolved)
           }
         }
