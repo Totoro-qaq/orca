@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { quotePosixShell } from '../../../src/shared/wsl-login-shell-command'
@@ -18,6 +18,8 @@ function fixtureCommand(fixturePath: string, marker: string): string {
 
 export function createPairedTerminalParkingFixture(): {
   command: (marker: string) => string
+  /** PTY grid at the fixture's last unread SIZE command, read off disk so a parked pane needs no client. */
+  readReportedSize: (marker: string) => string | null
   dispose: () => void
 } {
   const scratch = mkdtempSync(path.join(os.tmpdir(), 'orca-paired-retention-memory-'))
@@ -25,6 +27,7 @@ export function createPairedTerminalParkingFixture(): {
   writeFileSync(
     fixturePath,
     [
+      "import { writeFileSync } from 'node:fs'",
       'const marker = process.argv[2]',
       'process.stdout.write(`READY:${marker}\\r\\n`)',
       'process.stdin.setRawMode?.(true)',
@@ -65,6 +68,10 @@ export function createPairedTerminalParkingFixture(): {
       '      process.stdout.write(`FILLED:${marker}\\r\\n`)',
       '      continue',
       '    }',
+      "    if (command === 'SIZE') {",
+      '      writeFileSync(`${process.argv[1]}.${marker}.size`, `${process.stdout.columns}x${process.stdout.rows}`)',
+      '      continue',
+      '    }',
       '    process.stdout.write(`LIVE:${command}\\r\\n`)',
       '  }',
       '})',
@@ -73,6 +80,16 @@ export function createPairedTerminalParkingFixture(): {
   )
   return {
     command: (marker) => fixtureCommand(fixturePath, marker),
+    readReportedSize: (marker) => {
+      const sizePath = `${fixturePath}.${marker}.size`
+      if (!existsSync(sizePath)) {
+        return null
+      }
+      const size = readFileSync(sizePath, 'utf8')
+      // Consumed so a later probe cannot pass on an earlier report.
+      rmSync(sizePath, { force: true })
+      return size
+    },
     dispose: () => rmSync(scratch, { recursive: true, force: true })
   }
 }
