@@ -33,6 +33,11 @@ vi.mock('../../store', () => ({
     }
   }
 }))
+const sshStateGeneration = vi.hoisted(() => ({ value: 0 }))
+vi.mock('@/store/slices/runtime-environment-ssh', async (importOriginal) => ({
+  ...(await importOriginal<object>()),
+  getEnvironmentSshStateGeneration: () => sshStateGeneration.value
+}))
 vi.mock('@/lib/worktree-activation', () => ({ activateAndRevealWorktree: vi.fn() }))
 vi.mock('sonner', () => ({ toast: { warning: vi.fn() } }))
 vi.mock('@/components/worktree-base-fallback-notice', () => ({
@@ -336,25 +341,32 @@ describe('order-only refresh with actual store actions', () => {
     expect(store.getState().worktreesByRepo.repo[0].sortOrder).toBe(99)
   })
 
-  it('refetches instead of applying values published before a reconnect', async () => {
-    const h = createActualActionFixture()
-    await h.warm()
-    const listing = Promise.withResolvers<void>()
-    h.holdListing(listing.promise)
-    h.queue.enqueue({ repoId: 'repo', executionHostId: 'runtime:env-1' })
-    h.queue.enqueue({
-      repoId: 'repo',
-      executionHostId: 'runtime:env-1',
-      sortOrderOnly: true,
-      sortOrders: [{ worktreeId: h.worktree.id, sortOrder: 99 }]
-    })
-    advanceRuntimeEnvironmentConnectionGeneration('env-1')
-    h.setOrder(200)
-    listing.resolve()
-    await vi.waitFor(() => expect(store.getState().worktreesByRepo.repo[0].sortOrder).toBe(200))
-    await flushPromises()
-    expect(store.getState().worktreesByRepo.repo[0].sortOrder).toBe(200)
-  })
+  it.each(['reconnect', 'event-stream gap'] as const)(
+    'refetches instead of applying values published before a %s',
+    async (gap) => {
+      const h = createActualActionFixture()
+      await h.warm()
+      const listing = Promise.withResolvers<void>()
+      h.holdListing(listing.promise)
+      h.queue.enqueue({ repoId: 'repo', executionHostId: 'runtime:env-1' })
+      h.queue.enqueue({
+        repoId: 'repo',
+        executionHostId: 'runtime:env-1',
+        sortOrderOnly: true,
+        sortOrders: [{ worktreeId: h.worktree.id, sortOrder: 99 }]
+      })
+      if (gap === 'reconnect') {
+        advanceRuntimeEnvironmentConnectionGeneration('env-1')
+      } else {
+        sshStateGeneration.value += 1
+      }
+      h.setOrder(200)
+      listing.resolve()
+      await vi.waitFor(() => expect(store.getState().worktreesByRepo.repo[0].sortOrder).toBe(200))
+      await flushPromises()
+      expect(store.getState().worktreesByRepo.repo[0].sortOrder).toBe(200)
+    }
+  )
 
   it('leaves a same-id row owned by another host untouched', async () => {
     const h = createActualActionFixture()

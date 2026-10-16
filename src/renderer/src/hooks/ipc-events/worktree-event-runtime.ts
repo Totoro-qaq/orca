@@ -8,8 +8,7 @@ import type { RuntimeClientEvent } from '../../../../shared/runtime-client-event
 import type { AppState } from '../../store/types'
 import type { WorktreeSortOrderUpdate } from '../../../../shared/worktree/sort-order-update'
 import { patchWorktreeSortOrders } from '../../store/slices/worktrees/listing/worktree-sort-order-patch'
-import { getRuntimeEnvironmentConnectionGeneration } from '../../store/slices/runtime-status-connection-generation'
-import { getRuntimeEnvironmentRevision } from '../../runtime/runtime-environment-revision'
+import { buildRuntimeClientEventEnvironmentKey } from './runtime-environment-subscription-selection'
 import { useAppStore } from '../../store'
 import {
   invalidateRemoteWorktreeLineage,
@@ -22,8 +21,9 @@ import {
 
 const WORKTREE_RENAME_PURGE_GRACE_MS = 20_000
 
+// Why the subscription key: it changes on reconnect, re-pair and event-stream replay invalidation.
 function runtimeSortOrderFence(environmentId: string): string {
-  return `${getRuntimeEnvironmentConnectionGeneration(environmentId)}:${getRuntimeEnvironmentRevision(environmentId) ?? ''}`
+  return buildRuntimeClientEventEnvironmentKey([environmentId])
 }
 const recentlyRenamedWorktreeIdExpiry = new Map<string, number>()
 
