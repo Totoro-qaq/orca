@@ -112,6 +112,11 @@ export type UiCommandEventApi = {
     }) => void
   ) => () => void
   replyTabCreate: (reply: { requestId: string; browserPageId?: string; error?: string }) => void
+  /** Main asks whether a paired environment owns a workspace before running that host's CLI command. */
+  onRequestRemoteCliBrowserScope: (
+    callback: (data: { requestId: string; environmentId: string; workspaceId: string }) => void
+  ) => () => void
+  replyRemoteCliBrowserScope: (reply: { requestId: string; allowed: boolean }) => void
   onRequestTabSetProfile: (
     callback: (data: {
       requestId: string

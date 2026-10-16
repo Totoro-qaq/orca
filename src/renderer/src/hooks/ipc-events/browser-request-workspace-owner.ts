@@ -18,6 +18,24 @@ export function isBrowserWorkspaceOwnedByPairedServer(
   )
 }
 
+/**
+ * Whether `environmentId`'s own machine is the single owner of `worktreeId`. Gates the browser
+ * commands a managed SSH host forwards, so a host reaches only its own workspaces' tabs.
+ */
+export function isBrowserWorkspaceOwnedByEnvironment(
+  state: WorktreeOperationRouteState,
+  worktreeId: string,
+  environmentId: string
+): boolean {
+  const owner = resolveOwner(state, { workspaceId: worktreeId })
+  return (
+    owner.kind === 'resolved' &&
+    owner.owner.endpoint.kind === 'environment' &&
+    owner.owner.endpoint.environmentId === environmentId &&
+    owner.owner.at === 'local'
+  )
+}
+
 /** The workspace holding a browser tab, addressed by its tab (workspace) id or one of its page ids. */
 export function findBrowserTabWorktreeId(
   state: Pick<AppState, 'browserTabsByWorktree' | 'browserPagesByWorkspace'>,

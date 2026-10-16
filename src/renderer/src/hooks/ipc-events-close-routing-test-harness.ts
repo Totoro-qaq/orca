@@ -220,6 +220,7 @@ export async function useIpcEventsForCloseRouting({
         onNewBrowserTab: () => () => {},
         onNewMarkdownTab: () => () => {},
         onRequestTabCreate: () => () => {},
+        onRequestRemoteCliBrowserScope: () => () => {},
         replyTabCreate: () => {},
         onRequestTabClose: (listener: RequestTabCloseListener) => {
           if (requestTabCloseListenerRef) {

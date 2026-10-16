@@ -1,0 +1,200 @@
+/**
+ * #29145: an agent on a managed SSH host drives this desktop's Orca browser through the host's own
+ * `orca` CLI, only while "Allow this host's orca CLI to control Orca" is on.
+ *
+ * Off, the CLI is refused with an error that names the setting. On, `orca tab create` opens a
+ * desktop tab in the host's workspace (its traffic leaves through the host, which alone resolves
+ * the fixture origin) and `orca goto` navigates it. Off again, the host is refused at once.
+ */
+import type { ElectronApplication, Page } from '@stablyai/playwright-test'
+import { expect, test } from './helpers/orca-app'
+import { createRestartSession } from './helpers/orca-restart'
+import { waitForSessionReady } from './helpers/store'
+import {
+  cleanupDockerSshHostTarget,
+  DOCKER_SSH_HOST_REMOTE_REPO_PATH,
+  execDockerSshHostTargetCommand,
+  startDockerSshHostTarget,
+  type DockerSshHostTarget
+} from './helpers/docker-ssh-host-target'
+import { seedRelayEraProfile } from './helpers/orcad-upgrade-profile'
+import {
+  readSshRemoteOnlyRequests,
+  SSH_REMOTE_ONLY_ORIGIN,
+  startSshRemoteOnlyBrowserFixture
+} from './helpers/ssh-remote-only-browser-fixture'
+import { convertAndRetain } from './helpers/orcad-convert-flow'
+import {
+  activateManagedWorkspace,
+  expectPaneText,
+  managedEnvironmentId,
+  openTerminalTab,
+  ORCAD_TEMPLATE,
+  skipUnlessManagedDockerHost,
+  typeInTerminal
+} from './helpers/orcad-managed-workspace'
+import { DESKTOP_BROWSER_BRIDGE_SETTING_LABEL } from '../../src/shared/desktop-browser-bridge-protocol'
+
+skipUnlessManagedDockerHost()
+
+type CliResult = {
+  ok: boolean
+  result?: Record<string, unknown>
+  error?: { code: string; message: string }
+}
+
+let step = 0
+
+/** Runs an `orca` command in the host's terminal, as an agent there would, and reads its JSON. */
+async function hostCli(
+  page: Page,
+  target: DockerSshHostTarget,
+  tabId: string,
+  command: string
+): Promise<CliResult> {
+  step += 1
+  const out = `/tmp/bridge-cli-${step}.json`
+  const marker = `BRIDGE_${step}_DONE`
+  // Split so the typed line never contains the marker the wait looks for.
+  await typeInTerminal(
+    page,
+    tabId,
+    `${command} --json > ${out} 2>&1; printf '%s_%s\\n' BRIDGE_${step} DONE`
+  )
+  await expectPaneText(page, tabId, marker, 90_000)
+  return JSON.parse(execDockerSshHostTargetCommand(target, `cat ${out}`)) as CliResult
+}
+
+/** Retries until the desktop has attached its bridge, since the attach follows the setting change. */
+async function hostCliUntilOk(
+  page: Page,
+  target: DockerSshHostTarget,
+  tabId: string,
+  command: string
+): Promise<CliResult> {
+  let last: CliResult | null = null
+  await expect
+    .poll(
+      async () => {
+        last = await hostCli(page, target, tabId, command)
+        return last.ok
+      },
+      { timeout: 120_000, intervals: [2_000], message: 'the host CLI never reached the desktop' }
+    )
+    .toBe(true)
+  return last!
+}
+
+function setRemoteCliControl(page: Page, targetId: string, enabled: boolean): Promise<unknown> {
+  return page.evaluate(
+    ({ targetId, enabled }) =>
+      window.api.ssh.updateTarget({ id: targetId, updates: { allowRemoteCliControl: enabled } }),
+    { targetId, enabled }
+  )
+}
+
+function browserTabUrls(page: Page, worktreeId: string): Promise<string[]> {
+  return page.evaluate((id) => {
+    const state = window.__store?.getState()
+    return (state?.browserTabsByWorktree[id] ?? []).flatMap((tab) =>
+      (state?.browserPagesByWorkspace[tab.id] ?? []).map((entry) => entry.url)
+    )
+  }, worktreeId)
+}
+
+test('a managed SSH host drives the desktop browser only while its CLI control setting is on', async (// oxlint-disable-next-line no-empty-pattern -- Owns app launch.
+{}, testInfo) => {
+  test.setTimeout(8 * 60_000)
+  const target = startDockerSshHostTarget(testInfo)
+  const session = createRestartSession(testInfo, { ORCA_ORCAD_TEMPLATE_PATH: ORCAD_TEMPLATE! })
+  let app: ElectronApplication | null = null
+  try {
+    startSshRemoteOnlyBrowserFixture(target)
+    // The first launch only creates the profile the SSH host is saved into.
+    const first = await session.launch()
+    app = first.app
+    await waitForSessionReady(first.page)
+    await session.close(first.app)
+    app = null
+    const seeded = seedRelayEraProfile(
+      session.userDataDir,
+      {
+        label: `desktop browser bridge E2E ${Date.now()}`,
+        host: target.host,
+        port: target.port,
+        username: 'root',
+        identityFile: target.identityFile,
+        identitiesOnly: true,
+        relayGracePeriodSeconds: 1
+      },
+      { repoPath: DOCKER_SSH_HOST_REMOTE_REPO_PATH, folderPath: '/tmp' }
+    )
+    const launched = await session.launch()
+    app = launched.app
+    const page = launched.page
+    await waitForSessionReady(page)
+    await convertAndRetain(page, session.userDataDir, seeded)
+    const environmentId = await managedEnvironmentId(page, seeded.targetId)
+    await activateManagedWorkspace(page, seeded.worktreeId, environmentId)
+    const tabId = await openTerminalTab(page, seeded.worktreeId)
+
+    // Default off: refused with the setting's name, never "browser unavailable".
+    const refused = await hostCli(page, target, tabId, 'orca tab list')
+    expect(refused.ok).toBe(false)
+    expect(refused.error?.code).toBe('desktop_browser_bridge_unavailable')
+    expect(refused.error?.message).toContain(DESKTOP_BROWSER_BRIDGE_SETTING_LABEL)
+
+    await setRemoteCliControl(page, seeded.targetId, true)
+    const createdUrl = `${SSH_REMOTE_ONLY_ORIGIN}/echo/bridge-created`
+    const created = await hostCliUntilOk(page, target, tabId, `orca tab create --url ${createdUrl}`)
+    const browserPageId = String(created.result?.browserPageId ?? '')
+    expect(browserPageId).not.toBe('')
+    await expect
+      .poll(() => browserTabUrls(page, seeded.worktreeId), { timeout: 30_000 })
+      .toContain(createdUrl)
+    // Only the SSH host resolves this origin, so the request proves the desktop page egressed there.
+    await expect
+      .poll(() => readSshRemoteOnlyRequests(target).map((request) => request.path), {
+        timeout: 60_000,
+        message: 'the desktop tab the host opened never loaded through the host'
+      })
+      .toContain('/echo/bridge-created')
+
+    const navigatedUrl = `${SSH_REMOTE_ONLY_ORIGIN}/echo/bridge-navigated`
+    const navigated = await hostCli(
+      page,
+      target,
+      tabId,
+      `orca goto --url ${navigatedUrl} --page ${browserPageId}`
+    )
+    expect(navigated.ok).toBe(true)
+    await expect
+      .poll(() => readSshRemoteOnlyRequests(target).map((request) => request.path), {
+        timeout: 60_000,
+        message: 'the host never navigated the desktop tab'
+      })
+      .toContain('/echo/bridge-navigated')
+    const listed = await hostCli(page, target, tabId, 'orca tab list')
+    expect(listed.ok).toBe(true)
+    expect(JSON.stringify(listed.result)).toContain(browserPageId)
+    await page.screenshot({ path: testInfo.outputPath('desktop-browser-bridge-on.png') })
+
+    // Off again: the bridge detaches at once and the host is refused.
+    await setRemoteCliControl(page, seeded.targetId, false)
+    await expect
+      .poll(async () => (await hostCli(page, target, tabId, 'orca tab list')).error?.code ?? 'ok', {
+        timeout: 60_000,
+        intervals: [1_000]
+      })
+      .toBe('desktop_browser_bridge_unavailable')
+  } finally {
+    try {
+      if (app) {
+        await session.close(app)
+      }
+      await session.dispose()
+    } finally {
+      cleanupDockerSshHostTarget(target)
+    }
+  }
+})

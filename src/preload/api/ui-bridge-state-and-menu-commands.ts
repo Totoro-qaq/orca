@@ -177,5 +177,18 @@ export const uiStateAndMenuCommandsApi = {
   },
   replyTabCreate: (reply: { requestId: string; browserPageId?: string; error?: string }): void => {
     ipcRenderer.send('browser:tabCreateReply', reply)
+  },
+  onRequestRemoteCliBrowserScope: (
+    callback: (data: { requestId: string; environmentId: string; workspaceId: string }) => void
+  ): (() => void) => {
+    const listener = (
+      _event: Electron.IpcRendererEvent,
+      data: { requestId: string; environmentId: string; workspaceId: string }
+    ) => callback(data)
+    ipcRenderer.on('browser:requestRemoteCliScope', listener)
+    return () => ipcRenderer.removeListener('browser:requestRemoteCliScope', listener)
+  },
+  replyRemoteCliBrowserScope: (reply: { requestId: string; allowed: boolean }): void => {
+    ipcRenderer.send('browser:remoteCliScopeReply', reply)
   }
 } satisfies Partial<PreloadApi['ui']>

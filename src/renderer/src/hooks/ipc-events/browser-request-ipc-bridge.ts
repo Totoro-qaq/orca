@@ -9,6 +9,7 @@ import { useAppStore } from '../../store'
 import { acquireBrowserAutomationBootstrapLease } from './browser-automation-bootstrap-lease'
 import {
   findBrowserTabWorktreeId,
+  isBrowserWorkspaceOwnedByEnvironment,
   isBrowserWorkspaceOwnedByPairedServer
 } from './browser-request-workspace-owner'
 
@@ -22,6 +23,22 @@ function pairedServerWorkspaceError(): string {
 // Why owner, not the Active Server setting: these requests come from this desktop's own runtime,
 // which only names workspaces it runs, so focus on a paired server must not refuse them (#22275).
 export function registerBrowserRequestIpcBridge(unsubs: (() => void)[]): void {
+  unsubs.push(
+    window.api.ui.onRequestRemoteCliBrowserScope((data) => {
+      let allowed = false
+      try {
+        allowed = isBrowserWorkspaceOwnedByEnvironment(
+          useAppStore.getState(),
+          data.workspaceId,
+          data.environmentId
+        )
+      } catch {
+        // Why: an owner this window cannot prove is a refusal, never a pass.
+        allowed = false
+      }
+      window.api.ui.replyRemoteCliBrowserScope({ requestId: data.requestId, allowed })
+    })
+  )
   unsubs.push(
     window.api.ui.onRequestTabCreate((data) => {
       try {

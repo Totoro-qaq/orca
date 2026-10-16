@@ -3,17 +3,20 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 type CreateRequest = { requestId: string; worktreeId?: string; url: string }
 type CloseRequest = { requestId: string; tabId?: string | null; worktreeId?: string }
+type ScopeRequest = { requestId: string; environmentId: string; workspaceId: string }
 
 const mocks = vi.hoisted(() => {
   const listeners: {
     createListener: ((data: CreateRequest) => void) | null
     closeListener: ((data: CloseRequest) => void) | null
-  } = { createListener: null, closeListener: null }
+    scopeListener: ((data: ScopeRequest) => void) | null
+  } = { createListener: null, closeListener: null, scopeListener: null }
   return {
     ...listeners,
     getState: vi.fn(),
     replyTabCreate: vi.fn(),
     replyTabClose: vi.fn(),
+    replyRemoteCliBrowserScope: vi.fn(),
     createBrowserTab: vi.fn(),
     closeBrowserTab: vi.fn()
   }
@@ -85,6 +88,11 @@ describe('browser requests from this desktop follow the workspace owner (#22275)
             return () => {}
           },
           replyTabCreate: mocks.replyTabCreate,
+          onRequestRemoteCliBrowserScope: (listener: typeof mocks.scopeListener) => {
+            mocks.scopeListener = listener
+            return () => {}
+          },
+          replyRemoteCliBrowserScope: mocks.replyRemoteCliBrowserScope,
           onRequestTabSetProfile: () => () => {},
           replyTabSetProfile: vi.fn(),
           onRequestTabClose: (listener: typeof mocks.closeListener) => {
@@ -130,6 +138,60 @@ describe('browser requests from this desktop follow the workspace owner (#22275)
     expect(mocks.replyTabClose).toHaveBeenCalledWith({
       requestId: 'c2',
       error: expect.stringContaining('paired server')
+    })
+  })
+})
+
+describe('a managed SSH host reaches only its own workspaces on this desktop (#29145)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    Object.defineProperty(window, 'api', {
+      configurable: true,
+      value: {
+        ui: {
+          onRequestTabCreate: () => () => {},
+          replyTabCreate: vi.fn(),
+          onRequestRemoteCliBrowserScope: (listener: typeof mocks.scopeListener) => {
+            mocks.scopeListener = listener
+            return () => {}
+          },
+          replyRemoteCliBrowserScope: mocks.replyRemoteCliBrowserScope,
+          onRequestTabSetProfile: () => () => {},
+          replyTabSetProfile: vi.fn(),
+          onRequestTabClose: () => () => {},
+          replyTabClose: vi.fn()
+        }
+      }
+    })
+    registerBrowserRequestIpcBridge([])
+  })
+
+  it('allows the owning environment and refuses every other one and local workspaces', () => {
+    mocks.getState.mockReturnValue(storeState(LOCAL_WT))
+
+    mocks.scopeListener?.({ requestId: 's1', environmentId: 'env-remote', workspaceId: REMOTE_WT })
+    mocks.scopeListener?.({ requestId: 's2', environmentId: 'env-other', workspaceId: REMOTE_WT })
+    mocks.scopeListener?.({ requestId: 's3', environmentId: 'env-remote', workspaceId: LOCAL_WT })
+    mocks.scopeListener?.({ requestId: 's4', environmentId: 'env-remote', workspaceId: 'nope::/x' })
+
+    expect(mocks.replyRemoteCliBrowserScope.mock.calls.map(([reply]) => reply)).toEqual([
+      { requestId: 's1', allowed: true },
+      { requestId: 's2', allowed: false },
+      { requestId: 's3', allowed: false },
+      { requestId: 's4', allowed: false }
+    ])
+  })
+
+  it('answers no when the store cannot resolve the owner', () => {
+    mocks.getState.mockImplementation(() => {
+      throw new Error('store unavailable')
+    })
+
+    mocks.scopeListener?.({ requestId: 's5', environmentId: 'env-remote', workspaceId: REMOTE_WT })
+
+    expect(mocks.replyRemoteCliBrowserScope).toHaveBeenCalledWith({
+      requestId: 's5',
+      allowed: false
     })
   })
 })

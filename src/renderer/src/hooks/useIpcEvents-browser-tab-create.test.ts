@@ -189,6 +189,7 @@ describe('useIpcEvents browser tab create routing', () => {
             return () => {}
           },
           replyTabCreate,
+          onRequestRemoteCliBrowserScope: () => () => {},
           onRequestTabClose: () => () => {},
           replyTabClose: () => {},
           onRequestTabSetProfile: () => () => {},

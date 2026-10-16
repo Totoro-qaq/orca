@@ -50,6 +50,8 @@ import { wakeFolderRepoGitUpgradeWatch } from '../ipc/folder-repo-git-upgrade-wa
 import { runWorktreeChangeInvalidators } from '../ipc/worktree-change-invalidators'
 import { MACHINE_NAME_PUBLISH_WAIT_MS } from './runtime-machine-name'
 import { getManagedServerActions } from './managed-server-actions-registry'
+import { isDesktopBrowserBridgeHostEnabled } from './desktop-browser-bridge/desktop-browser-bridge-registry'
+import { DESKTOP_BROWSER_BRIDGE_RUNTIME_CAPABILITY } from '../../shared/desktop-browser-bridge-protocol'
 
 type RuntimeStatusHost = {
   getAvailableAuthoritativeWindow(): unknown
@@ -135,6 +137,9 @@ export abstract class OrcaRuntimeWithGetStatus extends OrcaRuntimeWithGetRuntime
     }
     if (getManagedServerActions()) {
       capabilities.push(MANAGED_SERVER_RUNTIME_CAPABILITY)
+    }
+    if (isDesktopBrowserBridgeHostEnabled()) {
+      capabilities.push(DESKTOP_BROWSER_BRIDGE_RUNTIME_CAPABILITY)
     }
     // Why not a static capability: dev trees and `orca serve` installs may carry no
     // out/mobile-web, and advertising a bundle this install cannot produce would promise a
