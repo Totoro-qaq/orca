@@ -42,9 +42,11 @@ vi.mock('./orcad-activation-lock', () => ({
 vi.mock('./orcad-activation-record-store', () => ({
   readOrcadActivationRecord: async () => ({ active: mocks.active.current })
 }))
-vi.mock('./orcad-recovery-slot', () => ({
-  orcadSlotDir: () => '/Users/dev/.orca-remote/orcad-1.0.0',
-  stopOrcadSlot: mocks.stop
+vi.mock('./orcad-managed-remote-stop', () => ({
+  readRemoteOrcadManagedStopTarget: async () => ({ state: 'ready', context: { version: '1.0.0' } })
+}))
+vi.mock('./orcad-rollback-terminal-barrier', () => ({
+  stopIncumbentBehindTerminalBarrier: mocks.stop
 }))
 vi.mock('./orcad-managed-wake', () => ({ wakeStoppedManagedOrcad: mocks.wake }))
 vi.mock('./orcad-managed-tunnel', () => ({ rebuildOrcadManagedTunnel: mocks.rebuild }))
@@ -64,7 +66,7 @@ beforeEach(() => {
   vi.clearAllMocks()
   mocks.host.current = getRemoteHostPlatform('darwin-arm64')
   mocks.active.current = '1.0.0'
-  mocks.stop.mockResolvedValue('stopped')
+  mocks.stop.mockResolvedValue({ state: 'retired' })
   mocks.wake.mockResolvedValue({ outcome: 'started', readiness: {} })
 })
 
@@ -95,10 +97,19 @@ describe('restartManagedOrcadEnvironment', () => {
 
   it('leaves a server it could not prove stopped running', async () => {
     mocks.census.mockResolvedValue(census(0))
-    mocks.stop.mockResolvedValue('still-running')
+    mocks.stop.mockResolvedValue({ state: 'unsettled', reason: 'still stopping' })
+    const result = await restartManagedOrcadEnvironment('/u', 'env-1')
+    expect(result).toEqual({ outcome: 'not-restarted', reason: 'still stopping' })
+    expect(mocks.wake).not.toHaveBeenCalled()
+  })
+
+  it('starts the server again but keeps the warning when the daemon was not retired', async () => {
+    mocks.census.mockResolvedValue(census(0))
+    mocks.stop.mockResolvedValue({ state: 'unproven', reason: 'a terminal started' })
     const result = await restartManagedOrcadEnvironment('/u', 'env-1')
     expect(result.outcome).toBe('not-restarted')
-    expect(mocks.wake).not.toHaveBeenCalled()
+    expect(mocks.wake).toHaveBeenCalledOnce()
+    expect(mocks.rebuild).toHaveBeenCalledOnce()
   })
 })
 
