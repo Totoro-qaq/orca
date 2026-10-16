@@ -150,7 +150,7 @@ export function orcadLaunchCommand(
           `> ${readiness} 2>> ${log} < /dev/null &`,
           `echo $! > ${pidFile} &&`,
           ...(recordSession
-            ? [`${writeOrcadLaunchSshSessionCommand(host, spec.remoteInstallDir)} &&`]
+            ? [`${writeOrcadLaunchSshSessionCommand(host, spec.userDataDir)} &&`]
             : []),
           `cat ${pidFile}`
         ])

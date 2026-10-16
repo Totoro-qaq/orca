@@ -7,10 +7,7 @@ import type { OrcadManagedRestartResult } from '../../shared/orcad-managed-runti
 import { withOrcadActivationLock, type OrcadActivationLockControl } from './orcad-activation-lock'
 import { readOrcadActivationRecord } from './orcad-activation-record-store'
 import {
-  carryOrcadLaunchSshSessionCommand,
-  orcadLaunchSshSessionOf,
   orcadLaunchSshSessionProbeCommand,
-  readOrcadLaunchSshSessionCommand,
   parseOrcadLaunchSshSession,
   recordsOrcadLaunchSshSession,
   type OrcadLaunchSshSession
@@ -20,8 +17,11 @@ import {
   managedOrcadInstallDir,
   managedOrcadSlot,
   requireManagedOrcadEnvironment,
+  requireManagedOrcadInfrastructure,
   resolveLinkedOrcadContext
 } from './orcad-managed-runtime-context'
+import { resolveOrcadRemoteContext } from './orcad-remote-context'
+import { sshOrcadHostTransport } from './orcad-ssh-host-transport'
 import { rebuildOrcadManagedTunnel } from './orcad-managed-tunnel'
 import { wakeStoppedManagedOrcad } from './orcad-managed-wake'
 import { readRemoteOrcadManagedStopTarget } from './orcad-managed-remote-stop'
@@ -34,8 +34,18 @@ export async function readManagedOrcadLaunchSshSession(
   userDataPath: string,
   environmentId: string
 ): Promise<OrcadLaunchSshSession> {
-  const { environment, deployment } = requireManagedOrcadEnvironment(userDataPath, environmentId)
-  const context = await resolveLinkedOrcadContext(environment, deployment)
+  const { deployment } = requireManagedOrcadEnvironment(userDataPath, environmentId)
+  const { connectionManager, targetStore } = requireManagedOrcadInfrastructure()
+  const target = targetStore.getTarget(deployment.sshTargetId)
+  // Why the open connection only: a background check must never redial a host the user left.
+  const connection =
+    target && connectionManager.getState(target.id)?.status === 'connected'
+      ? (connectionManager.getConnection(target.id) ?? null)
+      : null
+  if (!target || !connection) {
+    return 'unverifiable'
+  }
+  const context = await resolveOrcadRemoteContext(target, sshOrcadHostTransport(connection))
   if (!recordsOrcadLaunchSshSession(context.host)) {
     return 'not-applicable'
   }
@@ -46,7 +56,11 @@ export async function readManagedOrcadLaunchSshSession(
   return parseOrcadLaunchSshSession(
     await execOrcadRemote(
       { conn: context.connection, host: context.host },
-      orcadLaunchSshSessionProbeCommand(context.host, managedOrcadInstallDir(context, active))
+      orcadLaunchSshSessionProbeCommand(
+        context.host,
+        managedOrcadInstallDir(context, active),
+        context.userDataDir
+      )
     )
   )
 }
@@ -103,25 +117,23 @@ export function restartManagedOrcadEnvironment(
     await rebuildOrcadManagedTunnel(userDataPath, environment.id)
     const dir = orcadSlotDir(slot, stopped.version)
     if (stopped.state === 'daemon-kept') {
-      if (stopped.session) {
-        // Keeps the warning on later connects: the surviving daemon still has the ended session.
-        await execOrcadRemote(
-          slot,
-          carryOrcadLaunchSshSessionCommand(slot.host, dir, stopped.session)
-        ).catch(() => {})
-      }
+      // The launch carried the ended session forward, so later connects keep the warning.
       return { outcome: 'not-restarted', reason: stopped.reason }
     }
     const session = parseOrcadLaunchSshSession(
-      await execOrcadRemote(slot, orcadLaunchSshSessionProbeCommand(slot.host, dir))
+      await execOrcadRemote(
+        slot,
+        orcadLaunchSshSessionProbeCommand(slot.host, dir, slot.userDataDir)
+      )
     )
     if (session === 'exited') {
       return {
         outcome: 'not-restarted',
         reason:
-          'The managed server restarted, but the SSH session that started it has already ' +
-          'ended. This connection opens a new SSH session for each command; turn on SSH ' +
-          'connection reuse for this host, then restart again.'
+          'The managed server restarted, but its terminals still belong to an SSH session ' +
+          'that has ended: its terminal daemon was still running, or this connection opens a ' +
+          'new SSH session for each command. Turn on SSH connection reuse for this host if ' +
+          'it is off, then restart again.'
       }
     }
     return { outcome: 'restarted', environmentId: environment.id }
@@ -131,7 +143,7 @@ export function restartManagedOrcadEnvironment(
 type StopOutcome =
   | { state: 'retired'; version: string }
   /** orcad exited but its daemon, which spawns every terminal, kept the old attribution. */
-  | { state: 'daemon-kept'; version: string; reason: string; session: string | null }
+  | { state: 'daemon-kept'; version: string; reason: string }
   /** orcad keeps serving, or may still be stopping: nothing is started. */
   | { state: 'kept'; reason: string }
 
@@ -149,12 +161,6 @@ async function stopRetiringIdleDaemon(
   if (target.state === 'refused') {
     return { state: 'kept', reason: target.reason }
   }
-  const session = orcadLaunchSshSessionOf(
-    await execOrcadRemote(
-      slot,
-      readOrcadLaunchSshSessionCommand(slot.host, orcadSlotDir(slot, active))
-    ).catch(() => '')
-  )
   const barrier = await stopIncumbentBehindTerminalBarrier(slot, randomUUID(), target.context)
   switch (barrier.state) {
     case 'retired':
@@ -163,7 +169,6 @@ async function stopRetiringIdleDaemon(
       return {
         state: 'daemon-kept',
         version: active,
-        session,
         reason:
           'The managed server restarted, but its terminal daemon kept running because a terminal ' +
           'was open at the stop, so terminals may still lack local network access.'

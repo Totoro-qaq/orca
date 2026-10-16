@@ -6,8 +6,6 @@ import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import {
   captureOrcadLaunchSshSessionCommand,
-  carryOrcadLaunchSshSessionCommand,
-  orcadLaunchSshSessionOf,
   ORCAD_LAUNCH_SSH_SESSION_FILENAME,
   orcadLaunchSshSessionProbeCommand,
   orcadSshSessionAncestorShellFunction,
@@ -68,7 +66,7 @@ function writeRecord(pid: string, record: string | null): void {
 }
 
 function probe(env: Record<string, string> = {}): string {
-  return parseOrcadLaunchSshSession(sh(orcadLaunchSshSessionProbeCommand(mac, dir), env))
+  return parseOrcadLaunchSshSession(sh(orcadLaunchSshSessionProbeCommand(mac, dir, dir), env))
 }
 
 describe.skipIf(process.platform === 'win32')('orcad launch SSH session', () => {
@@ -118,7 +116,7 @@ describe.skipIf(process.platform === 'win32')('orcad launch SSH session', () => 
       remoteInstallDir: dir,
       nodePath: process.execPath,
       fullVersion: '1.0.0',
-      userDataDir: join(dir, 'data'),
+      userDataDir: dir,
       bindHost: '127.0.0.1',
       port: 0,
       activationRoot: join(dir, 'activation')
@@ -132,14 +130,32 @@ describe.skipIf(process.platform === 'win32')('orcad launch SSH session', () => 
     expect(probe({ FAKE_PS_GONE: '500' })).toBe('exited')
   })
 
-  it('carries an earlier session onto the running orcad, rejecting anything but a record', () => {
-    writeRecord('88', '77 500 Thu Oct 9 08:00:00 2026')
-    const session = orcadLaunchSshSessionOf('77 500 Thu Oct 9 08:00:00 2026\n')
-    expect(session).toBe('500 Thu Oct 9 08:00:00 2026')
-    expect(orcadLaunchSshSessionOf('77 500 $(reboot)')).toBeNull()
-    expect(() => carryOrcadLaunchSshSessionCommand(mac, dir, '500; rm -rf /')).toThrow()
-    sh(carryOrcadLaunchSshSessionCommand(mac, dir, session!))
-    expect(probe({ FAKE_PS_GONE: '500' })).toBe('exited')
+  it('carries the earlier session forward when the terminal daemon outlived orcad', () => {
+    writeRecord('1', '1 400 Thu Oct 9 07:59:59 2026')
+    spawnSync('mkdir', [join(dir, 'daemon')])
+    // This test process stands in for the surviving daemon.
+    writeFileSync(
+      join(dir, 'daemon', 'daemon-v1.pid'),
+      JSON.stringify({ pid: process.pid, startedAtMs: 1 })
+    )
+    const pidFile = join(dir, ORCAD_PID_FILENAME)
+    const pid = sh(
+      `${captureOrcadLaunchSshSessionCommand()} sleep 0 & echo $! > '${pidFile}' && ` +
+        `${writeOrcadLaunchSshSessionCommand(mac, dir)} && cat '${pidFile}'`
+    ).trim()
+    expect(readFileSync(join(dir, ORCAD_LAUNCH_SSH_SESSION_FILENAME), 'utf8').trim()).toBe(
+      `${pid} 400 Thu Oct 9 07:59:59 2026`
+    )
+    expect(probe({ FAKE_PS_GONE: '400' })).toBe('exited')
+  })
+
+  it('records nothing when a surviving daemon’s session was never recorded', () => {
+    spawnSync('mkdir', [join(dir, 'daemon')])
+    writeFileSync(join(dir, 'daemon', 'daemon-v1.pid'), JSON.stringify({ pid: process.pid }))
+    sh(
+      `${captureOrcadLaunchSshSessionCommand()} sleep 0 & ${writeOrcadLaunchSshSessionCommand(mac, dir)}`
+    )
+    expect(existsSync(join(dir, ORCAD_LAUNCH_SSH_SESSION_FILENAME))).toBe(false)
   })
 
   it('removes an earlier record when this launch finds no session', () => {

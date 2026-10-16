@@ -5,9 +5,11 @@
  * mode keeps both Full Disk Access and LAN access (Apple TN3179), so the launch records which SSH
  * session started it and a connect reports when that session is gone.
  *
- * The record is `<orcad pid> <sshd pid> <sshd start time>` in the slot dir, written only by a
- * macOS launch. Its orcad pid must match `.orcad-pid`: a launch by an older client leaves no
- * record of its own, and an earlier launch's record must not describe it.
+ * The record is `<orcad pid> <sshd pid> <sshd start time>` in the data root, written only by a
+ * macOS launch. Its orcad pid must match the slot's `.orcad-pid`: a launch by an older client
+ * leaves no record of its own, and an earlier launch's record must not describe it. Terminals are
+ * spawned by the daemon, which outlives orcad restarts and keeps the attribution it was spawned
+ * with, so a launch that finds a live daemon carries the earlier session forward.
  */
 import { shellEscape } from './ssh-connection-utils'
 import { joinRemotePath, type RemoteHostPlatform } from './ssh-remote-platform'
@@ -51,69 +53,47 @@ export function captureOrcadLaunchSshSessionCommand(): string {
   )
 }
 
-/** Runs after `$!` is recorded; a stale record from an earlier launch is removed first. */
-export function writeOrcadLaunchSshSessionCommand(
-  host: RemoteHostPlatform,
-  remoteInstallDir: string
-): string {
-  const file = shellEscape(
-    joinRemotePath(host, remoteInstallDir, ORCAD_LAUNCH_SSH_SESSION_FILENAME)
-  )
+function recordPath(host: RemoteHostPlatform, userDataDir: string): string {
+  return shellEscape(joinRemotePath(host, userDataDir, ORCAD_LAUNCH_SSH_SESSION_FILENAME))
+}
+
+/** True when a terminal daemon this data root published is still running. */
+function liveDaemonShellFunction(host: RemoteHostPlatform, userDataDir: string): string {
+  const daemonDir = shellEscape(joinRemotePath(host, userDataDir, 'daemon'))
   return (
-    `{ orcad_bg=$!; rm -f ${file}; [ -z "$orcad_session" ] || ` +
-    `( umask 077; echo "$orcad_bg" $orcad_session > ${file} ); :; } 2>/dev/null`
+    `orcad_daemon_live() { for orcad_df in ${daemonDir}/daemon-v*.pid; do ` +
+    '[ -f "$orcad_df" ] || continue; ' +
+    'orcad_dp=$(sed -n \'s/.*"pid":\\([0-9][0-9]*\\).*/\\1/p\' "$orcad_df" | head -n 1); ' +
+    '[ -n "$orcad_dp" ] && kill -0 "$orcad_dp" 2>/dev/null && return 0; done; return 1; };'
   )
-}
-
-export function readOrcadLaunchSshSessionCommand(
-  host: RemoteHostPlatform,
-  remoteInstallDir: string
-): string {
-  const file = shellEscape(
-    joinRemotePath(host, remoteInstallDir, ORCAD_LAUNCH_SSH_SESSION_FILENAME)
-  )
-  return `head -c 512 ${file} 2>/dev/null || true`
-}
-
-// The `<sshd pid> <lstart words>` of a record; anything else is never echoed into a command.
-const SESSION_PATTERN = /^\d+(?: [A-Za-z0-9:]+)+$/u
-
-/** The `<sshd pid> <lstart>` part of a record, or null when it isn't one. */
-export function orcadLaunchSshSessionOf(record: string): string | null {
-  const session = record.trim().replace(/^\d+ /u, '')
-  return session !== record.trim() && SESSION_PATTERN.test(session) ? session : null
 }
 
 /**
- * Re-attributes the running orcad's record to an earlier session. For a restart whose terminal
- * daemon survived: every terminal it spawns still carries that session, not the new launch's.
+ * Runs after `$!` is recorded. With a live daemon, the earlier record's session carries over
+ * (or none, when unknown); otherwise this launch's own session is recorded.
  */
-export function carryOrcadLaunchSshSessionCommand(
+export function writeOrcadLaunchSshSessionCommand(
   host: RemoteHostPlatform,
-  remoteInstallDir: string,
-  session: string
+  userDataDir: string
 ): string {
-  if (!SESSION_PATTERN.test(session)) {
-    throw new Error('orcad_launch_ssh_session_invalid')
-  }
-  const file = shellEscape(
-    joinRemotePath(host, remoteInstallDir, ORCAD_LAUNCH_SSH_SESSION_FILENAME)
-  )
-  const pidFile = shellEscape(joinRemotePath(host, remoteInstallDir, ORCAD_PID_FILENAME))
+  const file = recordPath(host, userDataDir)
   return (
-    `orcad_pid=$(cat ${pidFile} 2>/dev/null) && [ -n "$orcad_pid" ] && ` +
-    `( umask 077; echo "$orcad_pid" ${session} > ${file} )`
+    `{ orcad_bg=$!; ${liveDaemonShellFunction(host, userDataDir)} ` +
+    'if orcad_daemon_live; then ' +
+    `orcad_prev=$(cat ${file}); rm -f ${file}; set -- $orcad_prev; ` +
+    `[ "$#" -lt 3 ] || { shift; ( umask 077; echo "$orcad_bg" "$@" > ${file} ); }; ` +
+    `else rm -f ${file}; [ -z "$orcad_session" ] || ` +
+    `( umask 077; echo "$orcad_bg" $orcad_session > ${file} ); fi; :; } 2>/dev/null`
   )
 }
 
 /** Answers LIVE, EXITED, UNVERIFIABLE, NOT_RECORDED or NOT_APPLICABLE. */
 export function orcadLaunchSshSessionProbeCommand(
   host: RemoteHostPlatform,
-  remoteInstallDir: string
+  remoteInstallDir: string,
+  userDataDir: string
 ): string {
-  const file = shellEscape(
-    joinRemotePath(host, remoteInstallDir, ORCAD_LAUNCH_SSH_SESSION_FILENAME)
-  )
+  const file = recordPath(host, userDataDir)
   const pidFile = shellEscape(joinRemotePath(host, remoteInstallDir, ORCAD_PID_FILENAME))
   return [
     'orcad_mac=$(sw_vers -productVersion 2>/dev/null) || { echo NOT_APPLICABLE; exit 0; };',
