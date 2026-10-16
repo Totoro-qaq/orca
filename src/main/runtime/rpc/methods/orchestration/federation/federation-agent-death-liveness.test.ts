@@ -104,7 +104,8 @@ describe('federation host agent-death liveness', () => {
     })
     // Fenced to exits proven since the attachment, so an earlier agent's exit cannot count.
     const attachedAt = db.getRemoteDispatchAttachment(DISPATCH_ID)!.created_at
-    expect(presence).toHaveBeenCalledWith(HANDLE, orchestrationTimestampToMs(attachedAt))
+    // Rounded up past created_at's whole second, which an earlier exit could share.
+    expect(presence).toHaveBeenCalledWith(HANDLE, orchestrationTimestampToMs(attachedAt) + 1000)
   })
 
   it('keeps the PTY verdict when no hook identified the agent or it cannot be checked', async () => {

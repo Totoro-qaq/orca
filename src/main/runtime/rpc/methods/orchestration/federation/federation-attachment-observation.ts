@@ -123,7 +123,8 @@ export async function observeRemoteAttachmentLiveness(
   const agent = await (
     runtime.checkTerminalAgentPresence?.(
       attachment.terminal_handle,
-      orchestrationTimestampToMs(attachment.created_at)
+      // Why +1s: created_at has second resolution; an exit in that second may predate the attach.
+      orchestrationTimestampToMs(attachment.created_at) + 1000
     ) ?? Promise.resolve(null)
   ).catch(() => 'unverifiable' as const)
   return agent === 'exited' ? { ...observation, status: 'exited', agentWait: null } : observation

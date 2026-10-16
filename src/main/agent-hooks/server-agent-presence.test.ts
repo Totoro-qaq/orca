@@ -421,6 +421,23 @@ describe('retained agent exit', () => {
     expect(await server.checkAgentPresenceSince(PANE, attachedAt)).toBeNull()
   })
 
+  it('drops the exit once a hookless agent run starts its process-lifetime turn', async () => {
+    const server = await createServer()
+    const attachedAt = Date.now() - 1
+    await hook(server, 'SessionStart')
+    await hook(server, 'SessionEnd', 'session-a', 'prompt_input_exit')
+    server.ingestTerminalStatus({
+      paneKey: PANE,
+      tabId: 'tab-1',
+      worktreeId: 'wt-1',
+      connectionId: null,
+      origin: 'process',
+      yieldsToHookSince: Date.now(),
+      payload: { state: 'working', prompt: '', agentType: 'opencode' }
+    })
+    expect(await server.checkAgentPresenceSince(PANE, attachedAt)).toBeNull()
+  })
+
   it('drops the exit once a new agent reports from the pane', async () => {
     const server = await createServer()
     const attachedAt = Date.now() - 1
