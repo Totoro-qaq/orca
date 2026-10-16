@@ -69,6 +69,14 @@ export function createWorktreeEventRuntime(
       // Why: the host published the saved values, so refetching the repo would only re-download them (#27268).
       const { executionHostId, sortOrders } = options
       useAppStore.setState((s) => patchWorktreeSortOrders(s, repoId, executionHostId, sortOrders))
+      const owner = parseExecutionHostId(executionHostId)
+      // Keep the existing retry for a host whose lineage snapshot is not fresh.
+      if (
+        owner?.kind === 'runtime' &&
+        !isRemoteWorktreeLineageFresh(useAppStore.getState, owner.environmentId)
+      ) {
+        await useAppStore.getState().fetchWorktreeLineage({ executionHostId })
+      }
       return
     }
     const localRefreshStartedWithRuntime =

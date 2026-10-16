@@ -43,15 +43,15 @@ export function registerRuntimeClientIpcBridge(
   unsubs.push(() => {
     stopped = true
   })
+  const isRuntimeEventRepoKnown = ({ repoId, executionHostId }: OwnedWorktreeEvent): boolean =>
+    (useAppStore.getState().repos ?? []).some(
+      (repo) => repo.id === repoId && getRepoExecutionHostId(repo) === executionHostId
+    )
   const ensureRuntimeEventRepoKnown = async (
     environmentId: string,
-    { repoId, executionHostId }: OwnedWorktreeEvent
+    event: OwnedWorktreeEvent
   ): Promise<void> => {
-    if (
-      (useAppStore.getState().repos ?? []).some(
-        (repo) => repo.id === repoId && getRepoExecutionHostId(repo) === executionHostId
-      )
-    ) {
+    if (isRuntimeEventRepoKnown(event)) {
       return
     }
     await useAppStore.getState().fetchRuntimeEnvironmentRepos(environmentId)
@@ -135,16 +135,20 @@ export function registerRuntimeClientIpcBridge(
       if (event.sortOrderOnly !== true) {
         invalidateRemoteWorktreeLineage(useAppStore.getState, environmentId)
       }
-      const sortOrders =
-        event.sortOrderOnly === true ? readPublishedSortOrders(event.sortOrders) : null
       const owned = adoptFromEndpoint(endpoint, {
         kind: 'worktreeEvent',
         row: {
           repoId: event.repoId,
-          ...(event.sortOrderOnly === true ? { sortOrderOnly: true } : {}),
-          ...(sortOrders ? { sortOrders } : {})
+          ...(event.sortOrderOnly === true ? { sortOrderOnly: true } : {})
         }
       })
+      const sortOrders =
+        event.sortOrderOnly === true ? readPublishedSortOrders(event.sortOrders) : null
+      if (sortOrders && isRuntimeEventRepoKnown(owned)) {
+        // Why sync: published values must enqueue in receipt order; an unknown repo refetches instead.
+        worktreeChangeRefreshQueue.enqueue({ ...owned, sortOrders })
+        return
+      }
       void ensureRuntimeEventRepoKnown(environmentId, owned).then(() =>
         worktreeChangeRefreshQueue.enqueue(owned)
       )

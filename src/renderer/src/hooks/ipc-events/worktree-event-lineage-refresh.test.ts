@@ -319,6 +319,23 @@ describe('order-only refresh with actual store actions', () => {
     expect(runtimeEnvironmentCall.mock.calls.length).toBe(readsBefore)
   })
 
+  it('still retries lineage on a published save when the host snapshot is not fresh', async () => {
+    const h = createActualActionFixture()
+    h.queue.enqueue({
+      repoId: 'repo',
+      executionHostId: 'runtime:env-1',
+      sortOrderOnly: true,
+      sortOrders: [{ worktreeId: h.worktree.id, sortOrder: 99 }]
+    })
+    await vi.waitFor(() => expect(h.lineageReadCount()).toBe(1))
+    expect(
+      runtimeEnvironmentCall.mock.calls.filter(
+        ([request]) => request.method !== 'worktree.lineageList'
+      )
+    ).toEqual([])
+    expect(store.getState().worktreesByRepo.repo[0].sortOrder).toBe(99)
+  })
+
   it('leaves a same-id row owned by another host untouched', async () => {
     const h = createActualActionFixture()
     const local = makeWorktree({ id: h.worktree.id, repoId: 'repo', hostId: 'local', sortOrder: 5 })
