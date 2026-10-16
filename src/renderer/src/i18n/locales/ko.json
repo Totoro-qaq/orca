@@ -1062,6 +1062,14 @@
       "aiVaultResumeRefusal": {
         "openInChat": "이 {{value0}} 대화는 채팅에서 열려 있습니다. 열려면 세션 기록을 새로고침하세요.",
         "ownershipUnknown": "Orca가 이 {{value0}} 대화의 소유자를 확인할 수 없습니다. 세션 기록을 새로고침한 후 다시 시도하세요."
+      },
+      "pendingWorktreeCreation": {
+        "checkingOutFiles": "파일 체크아웃 중… {{percent}}%",
+        "provisioningVm": "VM 프로비저닝 중…",
+        "settingUpWorkspace": "워크스페이스 설정 중…",
+        "preparingWorkspace": "워크스페이스 준비 중…",
+        "creatingWorktree": "작업 트리 만드는 중…",
+        "fetchingBaseBranch": "기본 브랜치 가져오는 중…"
       }
     },
     "hooks": {
@@ -14130,6 +14138,18 @@
             "sourceMissing": "스크립트를 더 이상 사용할 수 없습니다.",
             "metadataMatch": "세션 메타데이터 일치",
             "sourceActionsUnavailable": "스크립트 소스를 사용할 수 없습니다."
+          },
+          "AiVaultScanProgressStrip": {
+            "fileCount_one": "파일 {{value0}}개",
+            "fileCount_other": "파일 {{value0}}개",
+            "databaseCount_one": "데이터베이스 {{value0}}개",
+            "databaseCount_other": "데이터베이스 {{value0}}개",
+            "scanning": "{{value0}} 스캔 중",
+            "reading": "파일 {{value0}}개 읽는 중",
+            "stoppedAfter": "{{value0}}에서 중지됨",
+            "scanned": "{{value0}} 스캔함",
+            "stoppedAt": "{{value0}}에서 중지됨",
+            "refresh": "새로 고침"
           }
         }
       },

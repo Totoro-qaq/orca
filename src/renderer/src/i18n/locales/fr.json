@@ -1166,6 +1166,14 @@
       "aiVaultResumeRefusal": {
         "openInChat": "Cette conversation {{value0}} est ouverte dans un chat. Actualisez l'historique des sessions pour l'ouvrir.",
         "ownershipUnknown": "Orca n'a pas pu confirmer à qui appartient cette conversation {{value0}}. Actualisez l'historique des sessions et réessayez."
+      },
+      "pendingWorktreeCreation": {
+        "checkingOutFiles": "Extraction des fichiers… {{percent}}%",
+        "provisioningVm": "Provisionnement de la VM…",
+        "settingUpWorkspace": "Configuration de votre espace de travail…",
+        "preparingWorkspace": "Préparation de l'espace de travail…",
+        "creatingWorktree": "Création du worktree…",
+        "fetchingBaseBranch": "Récupération de la branche de base…"
       }
     },
     "hooks": {
@@ -14238,6 +14246,18 @@
             "sourceMissing": "La transcription n'est plus disponible",
             "metadataMatch": "Faire correspondre les métadonnées de la session",
             "sourceActionsUnavailable": "La source de la transcription n'est pas disponible."
+          },
+          "AiVaultScanProgressStrip": {
+            "fileCount_one": "{{value0}} fichier",
+            "fileCount_other": "{{value0}} fichiers",
+            "databaseCount_one": "{{value0}} base de données",
+            "databaseCount_other": "{{value0}} bases de données",
+            "scanning": "Analyse de {{value0}}",
+            "reading": "Lecture de {{value0}} fichiers",
+            "stoppedAfter": "Arrêté après {{value0}}",
+            "scanned": "{{value0}} analysés",
+            "stoppedAt": "arrêté à {{value0}}",
+            "refresh": "Actualiser"
           }
         }
       },
