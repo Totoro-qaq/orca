@@ -164,7 +164,8 @@ type PaneDrive = {
   disposable: { dispose: () => void }
   deliver: (data: string, seq: number) => void
   setVisible: (visible: boolean) => void
-  setOutputPaused: (paused: boolean) => void
+  setOutputPaused: (paused: boolean, dropsReported?: boolean) => void
+  reportPausedOutputDropped: () => void
   writtenChunks: () => string[]
 }
 
@@ -178,13 +179,15 @@ async function connectHiddenPane(
     current: ((data: string, meta?: { seq?: number; rawLength?: number }) => void) | null
   } = { current: null }
   const capturedPause: {
-    current: ((paused: boolean, supported: boolean) => void) | null
+    current: ((paused: boolean, supported: boolean, dropsReported?: boolean) => void) | null
   } = {
     current: null
   }
+  const capturedDropped: { current: (() => void) | null } = { current: null }
   transport.connect.mockImplementation(async ({ callbacks }: { callbacks?: ConnectCallbacks }) => {
     captured.current = callbacks?.onData ?? null
     capturedPause.current = callbacks?.onOutputPauseChanged ?? null
+    capturedDropped.current = callbacks?.onPausedOutputDropped ?? null
     return ptyId
   })
   transportFactoryQueue.push(transport)
@@ -203,7 +206,9 @@ async function connectHiddenPane(
     setVisible: (visible) => {
       deps.isVisibleRef.current = visible
     },
-    setOutputPaused: (paused) => capturedPause.current?.(paused, true),
+    setOutputPaused: (paused, dropsReported) =>
+      capturedPause.current?.(paused, true, dropsReported),
+    reportPausedOutputDropped: () => capturedDropped.current?.(),
     writtenChunks: () => pane.terminal.write.mock.calls.map(([data]) => String(data))
   }
 }
@@ -476,13 +481,27 @@ describe('hidden-output restore loss disclosure (STA-4869)', () => {
           },
           snapshot: null
         },
-        legacy: false
+        legacy: false,
+        dropsReported: false
       },
-      { host: 'legacy host, no snapshot yet', failure: null, legacy: true }
+      {
+        // #29253: the host reports drops, so only its drop frame arms the restore.
+        host: 'drop-reporting host, permanently unavailable',
+        failure: {
+          availability: {
+            kind: 'permanently-unavailable',
+            reason: 'exceeds-client-replay-limit'
+          },
+          snapshot: null
+        },
+        legacy: false,
+        dropsReported: true
+      },
+      { host: 'legacy host, no snapshot yet', failure: null, legacy: true, dropsReported: false }
     ]
     it.each(answersWhileHidden)(
       '[invariant] restores on the unpause reveal after a restore failed while hidden ($host)',
-      async ({ failure, legacy }) => {
+      async ({ failure, legacy, dropsReported }) => {
         const answer = createDeferred<unknown>()
         const request = vi.fn().mockReturnValue(answer.promise)
         const drive = await connectHiddenPane(REMOTE_PTY_ID, (transport) => {
@@ -490,15 +509,19 @@ describe('hidden-output restore loss disclosure (STA-4869)', () => {
           transport.serializeBufferOutcome = legacy ? undefined : request
         })
         vi.useFakeTimers()
-        drive.setOutputPaused(true)
+        drive.setOutputPaused(true, dropsReported)
+        if (dropsReported) {
+          drive.reportPausedOutputDropped()
+        }
         drive.setVisible(true)
-        drive.setOutputPaused(false)
+        drive.setOutputPaused(false, dropsReported)
         await flushAsyncTicks(20)
         expect(request).toHaveBeenCalledTimes(1)
 
-        // The user switches away before the answer lands; the host drops output while paused.
+        // The user switches away before the answer lands. A drop-reporting host sends no
+        // second drop frame for bytes it already reported, so the pending restore must survive.
         drive.setVisible(false)
-        drive.setOutputPaused(true)
+        drive.setOutputPaused(true, dropsReported)
         answer.resolve(failure)
         await flushAsyncTicks(20)
         await allowRecoveryWindow()
@@ -506,7 +529,7 @@ describe('hidden-output restore loss disclosure (STA-4869)', () => {
         const snapshot = retainedSnapshot(REMOTE_MARKER)
         request.mockResolvedValue(legacy ? snapshot : hostAnswers(snapshot))
         drive.setVisible(true)
-        drive.setOutputPaused(false)
+        drive.setOutputPaused(false, dropsReported)
         await flushAsyncTicks(20)
 
         expect(request).toHaveBeenCalledTimes(2)
@@ -553,6 +576,7 @@ describe('hidden-output restore loss disclosure (STA-4869)', () => {
         },
         // Local panes are gated in main, not paused on a host.
         setOutputPaused: () => {},
+        reportPausedOutputDropped: () => {},
         writtenChunks: () => pane.terminal.write.mock.calls.map(([data]) => String(data))
       }
     }
