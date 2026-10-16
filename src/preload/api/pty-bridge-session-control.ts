@@ -122,6 +122,9 @@ export const ptySessionControlApi = {
   ackColdRestore: (id: string): void => {
     ipcRenderer.send('pty:ackColdRestore', { id })
   },
+  ackHiddenOutputRestoreApplied: (id: string): void => {
+    ipcRenderer.send('pty:hiddenOutputRestoreApplied', { id })
+  },
   ackData: (id: string, charCount: number, processedChars?: number): void => {
     ipcRenderer.send('pty:ackData', {
       id,

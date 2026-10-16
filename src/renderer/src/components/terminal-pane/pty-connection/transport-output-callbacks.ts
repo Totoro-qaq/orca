@@ -125,6 +125,10 @@ export function bindCaptureTransportOutputCallbacks(session: ConnectPanePtySessi
   session.hiddenOutputRestoreLegacyPtyId = null
   // Bounded remote re-arms spent instead of the loss banner (per PTY stream).
   session.hiddenOutputRestoreRemoteAbandonCycles = 0
+  // Highest markerSeq main reported for the subscribed PTY, and the gap a banner already
+  // disclosed: main's drop latch outlives unhide, so an unservable gap re-marks per reveal.
+  session.hiddenOutputRestoreMarkerSeqHighWater = null
+  session.hiddenOutputRestoreDisclosedGap = null
   session.hiddenOutputSnapshotScrollRestore = null
   // Why: hidden recovery state belongs to one PTY stream. Reattach/restart
   // can reuse the pane object for a different session before visibility.

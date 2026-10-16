@@ -7,6 +7,7 @@ import type {
 import { redactPtyIdForDiagnostics } from '../../../../shared/pty-delivery-diagnostics'
 import { installTerminalViewAttributesIpc } from './terminal-view-attributes-ipc'
 import {
+  consumeHiddenRendererPtyDropMemory,
   recordHiddenRendererPtyDataDrop,
   setRendererPtyDeliveryInterest,
   shouldDropHiddenRendererPtyData
@@ -76,6 +77,16 @@ export function installPtyResizeVisibilityIpc(session: PtyIpcSession): void {
     if (provider && 'ackColdRestore' in provider && typeof provider.ackColdRestore === 'function') {
       provider.ackColdRestore(args.id)
     }
+  })
+
+  // Why the ack and not the serve: the pane can dispose across the serialize + IPC round trip,
+  // so the drop latch stays armed until the restored bytes are actually painted (#15504).
+  ipcMain.removeAllListeners('pty:hiddenOutputRestoreApplied')
+  ipcMain.on('pty:hiddenOutputRestoreApplied', (_event, args: { id?: unknown }) => {
+    if (typeof args?.id !== 'string' || !args.id) {
+      return
+    }
+    consumeHiddenRendererPtyDropMemory(args.id)
   })
 
   // Why: renderer ACKs bound main→renderer delivery without stopping PTY ingestion — agent/status consumers still see every chunk via the provider/runtime path.

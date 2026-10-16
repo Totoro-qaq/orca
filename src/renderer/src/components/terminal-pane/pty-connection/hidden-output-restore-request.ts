@@ -170,9 +170,11 @@ export function bindHiddenOutputRestoreRequest(session: ConnectPanePtySession): 
               HIDDEN_OUTPUT_RESTORE_LOCAL_GATE_MAX_ATTEMPTS
           }
           if (budgetExhausted) {
-            session.abandonHiddenOutputRestoreAndDrainPendingForeground(currentPtyId, {
-              rearmRemote: false
-            })
+            if (!session.deferHiddenOutputRestoreLossToReveal()) {
+              session.abandonHiddenOutputRestoreAndDrainPendingForeground(currentPtyId, {
+                rearmRemote: false
+              })
+            }
             return
           }
           session.hiddenOutputRestoreNeeded = true
@@ -182,9 +184,11 @@ export function bindHiddenOutputRestoreRequest(session: ConnectPanePtySession): 
           return
         }
         if (snapshotResult.kind === 'permanently-unavailable') {
-          session.abandonHiddenOutputRestoreAndDrainPendingForeground(currentPtyId, {
-            rearmRemote: false
-          })
+          if (!session.deferHiddenOutputRestoreLossToReveal()) {
+            session.abandonHiddenOutputRestoreAndDrainPendingForeground(currentPtyId, {
+              rearmRemote: false
+            })
+          }
           return
         }
         if (snapshotResult.kind === 'unknown-legacy-host') {
@@ -219,6 +223,7 @@ export function bindHiddenOutputRestoreRequest(session: ConnectPanePtySession): 
           snapshot,
           restoredSnapshotPaintsPrintableContent(snapshot)
         )
+        session.ackHiddenOutputRestoreApplied(currentPtyId)
         session.hiddenOutputRestoreReplayingSnapshot = null
         const needsFreshSnapshot = session.hiddenOutputRestoreFreshSnapshotNeeded
         session.hiddenOutputRestoreFreshSnapshotNeeded = false

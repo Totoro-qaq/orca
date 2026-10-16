@@ -50,6 +50,24 @@ export function bindHiddenOutputRestoreSnapshot(session: ConnectPanePtySession):
       foreground: true,
       beforeWrite: session.beforeTerminalOutputWrite
     })
+    const ptyId = session.transport.getPtyId()
+    if (ptyId !== null) {
+      // The banner covers every drop main has reported so far; repeat markers for it are ignored.
+      session.hiddenOutputRestoreDisclosedGap = {
+        ptyId,
+        seq: session.hiddenOutputRestoreMarkerSeqHighWater
+      }
+    }
+  }
+
+  // Why an ack instead of retiring on the serve: the pane can dispose across the serialize +
+  // IPC round trip, and a snapshot nobody painted heals nothing. Only PTYs whose bytes transit
+  // local main have a drop latch, so remote-runtime streams send nothing.
+  session.ackHiddenOutputRestoreApplied = function (ptyId: string): void {
+    if (!session.canUseMainBufferSnapshot(ptyId)) {
+      return
+    }
+    window.api.pty.ackHiddenOutputRestoreApplied?.(ptyId)
   }
 
   session.applyMainBufferSnapshot = async function (snapshot: {

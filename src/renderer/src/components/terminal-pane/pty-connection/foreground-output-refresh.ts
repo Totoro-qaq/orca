@@ -10,6 +10,7 @@ import { RESET_AFTER_BYTE_GAP } from '../../../../../shared/terminal-mode-reset-
 import { recordTerminalOutput } from '@/lib/pane-manager/pane-scroll'
 import { ensureArabicShapingJoinerForText } from '@/lib/pane-manager/terminal-arabic-shaping-joiner'
 import { registerPtyModelRestoreNeededHandler } from '../pty-model-restore-channel'
+import type { PtyModelRestoreNeededEvent } from '../../../../../shared/pty-model-restore-marker'
 import {
   acquireHiddenRendererPtyDeliveryClaim,
   declareRendererPtyDeliveryVisible
@@ -51,8 +52,28 @@ export function bindForegroundOutputRefresh(session: ConnectPanePtySession): voi
   }
 
   // Why: main reports dropped renderer-bound bytes out-of-band, routed per PTY by pty-model-restore-channel.ts.
-  function handleModelRestoreNeededMarker(): void {
+  function handleModelRestoreNeededMarker(event: PtyModelRestoreNeededEvent): void {
     if (session.disposed) {
+      return
+    }
+    const markerSeq = typeof event.markerSeq === 'number' ? event.markerSeq : null
+    if (markerSeq !== null) {
+      session.hiddenOutputRestoreMarkerSeqHighWater = Math.max(
+        session.hiddenOutputRestoreMarkerSeqHighWater ?? markerSeq,
+        markerSeq
+      )
+    }
+    // Why: main's latch stays armed until a restore paints, so a gap it can never serve re-marks
+    // on every unhide. Repeats at or below the disclosed seq are that same gap; a higher or
+    // seq-less marker may be new loss and proceeds, failing toward recovery.
+    const disclosed = session.hiddenOutputRestoreDisclosedGap
+    if (
+      disclosed !== null &&
+      disclosed.ptyId === session.transport.getPtyId() &&
+      disclosed.seq !== null &&
+      markerSeq !== null &&
+      markerSeq <= disclosed.seq
+    ) {
       return
     }
     recordTerminalFreezeBreadcrumb('restore-marker', {
@@ -90,6 +111,9 @@ export function bindForegroundOutputRefresh(session: ConnectPanePtySession): voi
     }
     session.unregisterModelRestoreNeeded?.()
     session.unregisterModelRestoreNeeded = null
+    // Marker bookkeeping is per PTY stream, like the restore state itself.
+    session.hiddenOutputRestoreMarkerSeqHighWater = null
+    session.hiddenOutputRestoreDisclosedGap = null
     session.modelRestoreSubscribedPtyId = ptyId
     // Why: markers exist only for PTYs whose bytes transit local main;
     // remote-runtime transports are structurally unaffected.
